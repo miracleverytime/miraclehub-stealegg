@@ -74,6 +74,34 @@ return function()
         antiAFK = false,
         stealthMode = true,           -- Critical for undetectability
         trustBuildingComplete = false,
+        showNotifications = true,       -- Enable/disable UI notifications
+    },
+    
+    -- Color Palette (required by UI framework)
+    Colors = {
+        Background = Color3.fromRGB(10, 13, 16),      -- gunmetal black
+        BackgroundLight = Color3.fromRGB(18, 22, 27), -- gunmetal panel
+        BackgroundLighter = Color3.fromRGB(26, 31, 38), -- gunmetal secondary
+        Surface = Color3.fromRGB(32, 38, 46),
+        SurfaceLight = Color3.fromRGB(40, 48, 58),
+        Border = Color3.fromRGB(30, 37, 45),          -- gunmetal border
+        BorderLight = Color3.fromRGB(40, 100, 95),    -- teal-tinted border
+        TextPrimary = Color3.fromRGB(209, 213, 219),
+        TextSecondary = Color3.fromRGB(148, 155, 165),
+        TextMuted = Color3.fromRGB(113, 113, 122),
+        Accent = Color3.fromRGB(77, 214, 201),        -- lime-400
+        Success = Color3.fromRGB(77, 214, 201),       -- lime-400
+        Warning = Color3.fromRGB(251, 191, 36),       -- amber-400
+        Error = Color3.fromRGB(248, 113, 113),        -- red-400
+        Electric = Color3.fromRGB(56, 189, 248),      -- sky-400
+        Rainbow = Color3.fromRGB(244, 114, 182),      -- pink-400
+        Frozen = Color3.fromRGB(103, 232, 249),       -- cyan-300
+        Gold = Color3.fromRGB(250, 204, 21),          -- yellow-400
+        ToggleOn = Color3.fromRGB(77, 214, 201),
+        ToggleOff = Color3.fromRGB(30, 37, 45),
+        ToggleKnob = Color3.fromRGB(10, 13, 16),
+        SliderTrack = Color3.fromRGB(26, 31, 38),
+        SliderFill = Color3.fromRGB(77, 214, 201),
     },
     
     -- Runtime data (populated during initialization)
