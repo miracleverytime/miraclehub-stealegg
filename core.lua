@@ -1,7 +1,8 @@
 -- Steal An Egg - Miracle Hub Core Configuration
 -- File: core.lua
 
-local ctx = {
+return function()
+    local ctx = {
     GAME_NAME = "Steal An Egg",
     PLACE_ID = 107778070777162,
     SEARCH_ITEMS = {"egg", "farm", "hunt", "steal", "travel", "hatch", "equip"},
@@ -101,4 +102,5 @@ _G._MiracleHubSession += 1
 
 print("[MiracleHub] Steal An Egg Core Loaded | Session:", _G._MiracleHubSession)
 
-return ctx
+    return ctx
+end
