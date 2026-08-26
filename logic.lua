@@ -176,7 +176,7 @@ local function EnableSmoothTravel(enabled)
     end
 end
 
-local task.spawn(function()
+task.spawn(function()
     while _G._MiracleHubSession == session do
         if ctx.States.smoothTravel then
             local player = ctx.Services.Players.LocalPlayer
