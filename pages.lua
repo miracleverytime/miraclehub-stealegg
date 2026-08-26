@@ -349,9 +349,12 @@ local function getEggTypeOptions()
     local options = {}
     
     -- Get egg models from workspace
-    local eggs = workspace:GetDescendants():filter(function(instance)
-        return instance:IsA("Model") and instance.Name:lower():find("egg") and instance.Parent == workspace
-    end)
+    local eggs = {}
+    for _, instance in ipairs(workspace:GetDescendants()) do
+        if instance:IsA("Model") and instance.Name:lower():find("egg") and instance.Parent == workspace then
+            table.insert(eggs, instance)
+        end
+    end
     
     local seenNames = {}
     

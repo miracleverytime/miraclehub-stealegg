@@ -19,13 +19,13 @@ local function safeCall(func, ...)
 end
 
 local function GetRemote(path)
-    local parts = path:split(":")
+    local parts = string.split(path, ":")
     local instance = game:GetService(parts[1])
     
     for i = 2, #parts do
         if parts[i]:match("^%.") then
             -- Named argument syntax like "GuardTutorial: RequestRuntimeState"
-            local arg = parts[i]:gsub(":", ""):match("%s*(.-)%s*$"):strip()
+            local arg = parts[i]:gsub(":", ""):match("%s*(.-)%s*$"):gsub("^%s*(.-)%s*$", "%1")
             break
         else
             instance = instance:FindFirstChild(parts[i])
@@ -78,7 +78,8 @@ local function CheckTrustStatus()
     
     -- Jump and measure height (trust-safe test)
     local player = ctx.Services.Players.LocalPlayer
-    local humanoid = player.Humanoid
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     
     if not humanoid or not rootPart then
@@ -133,7 +134,7 @@ end
 local function safePerformTrustBuildingMovement()
     local player = ctx.Services.Players.LocalPlayer
     local character = player.Character
-    local humanoid = player.Humanoid
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if not humanoid or not rootPart then return end
@@ -181,7 +182,7 @@ task.spawn(function()
         if ctx.States.smoothTravel then
             local player = ctx.Services.Players.LocalPlayer
             local character = player.Character
-            local humanoid = player.Humanoid
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
             
             if humanoid and rootPart then
@@ -218,7 +219,8 @@ task.spawn(function()
     while _G._MiracleHubSession == session do
         if ctx.States.antiAFK then
             local player = ctx.Services.Players.LocalPlayer
-            local humanoid = player.Humanoid
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
             
             if humanoid and rootPart then
@@ -245,7 +247,7 @@ task.spawn(function()
                 -- Stealth fly: move with camera direction but don't fully disable gravity
                 local player = ctx.Services.Players.LocalPlayer
                 local character = player.Character
-                local humanoid = player.Humanoid
+                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
                 local rootPart = character and character:FindFirstChild("HumanoidRootPart")
                 local camera = workspace.CurrentCamera
                 
@@ -286,7 +288,8 @@ end
 -- REMOTE HANDLING
 -- ============================================================
 
-local FireRemoteAsync = function(remoteNameOrPath, ...args)
+local FireRemoteAsync = function(remoteNameOrPath, ...)
+    local args = {...}  -- pack varargs into table
     local remote = GetRemote(remoteNameOrPath) or FindRemoteByName(remoteNameOrPath)[1]
     
     if not remote then
@@ -313,15 +316,18 @@ end
 function CollectClosestEgg()
     local player = ctx.Services.Players.LocalPlayer
     local character = player.Character
-    local humanoid = player.Humanoid
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if not humanoid or not rootPart then return false end
     
     -- Search Workspace for egg models
-    local eggs = workspace:GetDescendants():filter(function(instance)
-        return instance:IsA("Model") and instance.Name:lower():find("egg") and instance.Parent == workspace
-    end)
+    local eggs = {}
+    for _, instance in ipairs(workspace:GetDescendants()) do
+        if instance:IsA("Model") and instance.Name:lower():find("egg") and instance.Parent == workspace then
+            table.insert(eggs, instance)
+        end
+    end
     
     local closestEgg = nil
     local minDistance = 10 -- Collection range
@@ -363,15 +369,18 @@ end
 function AutoHuntNPC()
     local player = ctx.Services.Players.LocalPlayer
     local character = player.Character
-    local humanoid = player.Humanoid
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if not humanoid or not rootPart then return false end
     
     -- Search for NPC enemies
-    local npcs = workspace:GetDescendants():filter(function(instance)
-        return instance:IsA("Model") and (instance.Name:lower():find("npc") or instance.Name:lower():find("enemy")) and instance.Parent == workspace
-    end)
+    local npcs = {}
+    for _, instance in ipairs(workspace:GetDescendants()) do
+        if instance:IsA("Model") and (instance.Name:lower():find("npc") or instance.Name:lower():find("enemy")) and instance.Parent == workspace then
+            table.insert(npcs, instance)
+        end
+    end
     
     local closestEnemy = nil
     local minDistance = 20 -- Attack range
