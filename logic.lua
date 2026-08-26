@@ -1,9 +1,13 @@
 -- Steal An Egg - Miracle Hub Logic Module
 -- File: logic.lua
 -- Implements automation, anti-cheat evasion, and remote management
+--
+-- Loader contract (loader.lua): module must `return function(ctx)`.
+-- All public functions are written to `ctx` so pages.lua can call them
+-- (ctx.EnableSmoothTravel, ctx.CollectEgg, ctx.HuntNPC, ...).
 
-local ctx = _G._MiracleHubSteaLEgg
-local session = _G._MiracleHubSession
+return function(ctx)
+local session  = _G._MiracleHubSession
 local isMobile = _G._MiracleHubIsMobile or false
 
 -- ============================================================
@@ -439,12 +443,13 @@ _G.GameCleanup = _G.GameCleanup or {}
 table.insert(_G.GameCleanup, CleanupRoutine)
 
 print("[MiracleHub] Steal An Egg Logic Module Initialized | Session:", session)
-return {
-    FireRemote = FireRemoteAsync,
-    EnableSmoothTravel = EnableSmoothTravel,
-    EnableAntiAFK = EnableAntiAFK,
-    WaitForTrustBuild = WaitForTrustBuild,
-    CheckTrustStatus = CheckTrustStatus,
-    CollectEgg = CollectClosestEgg,
-    HuntNPC = AutoHuntNPC
-}
+
+-- Export public API to ctx (consumed by pages.lua)
+ctx.FireRemote          = FireRemoteAsync
+ctx.EnableSmoothTravel  = EnableSmoothTravel
+ctx.EnableAntiAFK       = EnableAntiAFK
+ctx.WaitForTrustBuild   = WaitForTrustBuild
+ctx.CheckTrustStatus    = CheckTrustStatus
+ctx.CollectEgg          = CollectClosestEgg
+ctx.HuntNPC             = AutoHuntNPC
+end

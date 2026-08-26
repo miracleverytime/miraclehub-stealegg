@@ -1,8 +1,10 @@
 -- Steal An Egg - Miracle Hub Pages/UI Module
 -- File: pages.lua
 -- Builds the UI components for each tab
+--
+-- Loader contract (loader.lua): module must `return function(ctx)`.
 
-local ctx = _G._MiracleHubSteaLEgg
+return function(ctx)
 local session = _G._MiracleHubSession
 
 -- UI Builder Functions (injected by shared framework)
@@ -378,3 +380,4 @@ local function getEggTypeOptions()
 end
 
 print("[MiracleHub] Steal An Egg Pages Module Loaded | Ready for UI registration")
+end
