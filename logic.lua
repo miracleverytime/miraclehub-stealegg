@@ -22,24 +22,49 @@ local TweenService     = ctx.Services.TweenService
 local localPlayer       = ctx.player
 local localPlayerId     = localPlayer and localPlayer.UserId or 0
 
--- Real game client modules (these are present in ReplicatedStorage).
--- pcall(require, ...) syntax is intentionally wrapped so pcall receives
--- require AND the module path as separate arguments.
-local function pcallRequire(path)
-    return pcall(function() return require(path) end)
+-- Real game client modules.
+-- IMPORTANT: instance resolution happens INSIDE the protected call.
+-- Evaluating `A.B.C` as an argument would throw BEFORE pcall engages
+-- and abort the whole hub load chain; a missing module must instead
+-- degrade gracefully to (false, nil).
+local Lib    = ReplicatedStorage:WaitForChild("Library", 30)
+local Client = Lib and Lib:FindFirstChild("Client")
+
+local function loadModule(resolveFn)
+    if not Client then return false, nil end
+    local ok, result = pcall(resolveFn)
+    if not ok then
+        warn("[StealAnEgg] module skipped:", tostring(result))
+        return false, nil
+    end
+    return true, result
 end
 
-local okNet, Network_m              = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.Network)
-local okEgg, EggCmds_m              = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.EggCmds)
-local okAsset, AssetCmds_m          = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.AssetCmds)
-local okMsg, Message_m              = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.NotificationCmds.Message)
-local okBase, BaseUpgradeClient     = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.BaseUpgradeClient)
-local okGuard, ToolGameplayGuard_m  = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.ToolGameplayGuard)
-local okPlot, PlotCmds_m            = pcallRequire(ReplicatedStorage:WaitForChild("Library").Client.PlotCmds)
-local okConst, Constants_m          = pcallRequire(ReplicatedStorage:WaitForChild("Library").Globals.Constants)
-local okResolver, AssetDnaProductResolver_m = pcallRequire(
-    ReplicatedStorage:WaitForChild("Library").Client.AssetDnaProductResolver
-)
+local okNet, Network_m              = loadModule(function() return require(Client.Network) end)
+local okEgg, EggCmds_m              = loadModule(function() return require(Client.EggCmds) end)
+local okAsset, AssetCmds_m          = loadModule(function() return require(Client.AssetCmds) end)
+local okMsg, Message_m              = loadModule(function() return require(Client.NotificationCmds.Message) end)
+local okBase, BaseUpgradeClient     = loadModule(function() return require(Client.BaseUpgradeClient) end)
+local okGuard, ToolGameplayGuard_m  = loadModule(function() return require(Client.ToolGameplayGuard) end)
+local okPlot, PlotCmds_m            = loadModule(function() return require(Client.PlotCmds) end)
+
+-- Lives under PlayerScripts.Game.Plots.ActiveAssetsController,
+-- NOT ReplicatedStorage.Library.Client.
+local okResolver, AssetDnaProductResolver_m = (function()
+    local ps  = localPlayer:FindFirstChild("PlayerScripts")
+    local g   = ps and ps:FindFirstChild("Game")
+    local pl  = g and g:FindFirstChild("Plots")
+    local aac = pl and pl:FindFirstChild("ActiveAssetsController")
+    local m   = aac and aac:FindFirstChild("AssetDnaProductResolver")
+    if not m then return false, nil end
+    return pcall(function() return require(m) end)
+end)()
+
+local Globals = Lib and Lib:FindFirstChild("Globals")
+local okConst, Constants_m = loadModule(function()
+    if not Globals then error("Library.Globals missing") end
+    return require(Globals.Constants)
+end)
 
 local NETWORK = (okConst and Constants_m.NETWORK_MAP) or ctx.NETWORK_ENDPOINTS or {}
 
