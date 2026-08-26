@@ -1,6 +1,7 @@
 -- Steal An Egg - Miracle Hub Pages/UI Module
 -- File: pages.lua
--- Builds the UI components for each tab
+-- Builds the UI components for each tab and wires them to real game
+-- actions through ctx.* helpers exposed by logic.lua.
 --
 -- Loader contract (loader.lua): module must `return function(ctx)`.
 
@@ -8,29 +9,69 @@ return function(ctx)
 local session = _G._MiracleHubSession
 
 -- UI Builder Functions (injected by shared framework)
-local CreateSectionCard = ctx.UI.CreateSectionCard
-local CreateSubHeader = ctx.UI.CreateSubHeader
-local CreateToggle = ctx.UI.CreateToggle
-local CreateSlider = ctx.UI.CreateSlider
-local CreateDropdown = ctx.UI.CreateDropdown
+local CreateSectionCard    = ctx.UI.CreateSectionCard
+local CreateSubHeader     = ctx.UI.CreateSubHeader
+local CreateToggle        = ctx.UI.CreateToggle
+local CreateSlider        = ctx.UI.CreateSlider
+local CreateDropdown      = ctx.UI.CreateDropdown
 local CreateDynamicDropdown = ctx.UI.CreateDynamicDropdown
-local CreateMultiSelect = ctx.UI.CreateMultiSelect
-local CreateActionButton = ctx.UI.CreateActionButton
-local CreateInfoText = ctx.UI.CreateInfoText
-local CreateStatRow = ctx.UI.CreateStatRow
+local CreateMultiSelect   = ctx.UI.CreateMultiSelect
+local CreateActionButton  = ctx.UI.CreateActionButton
+local CreateInfoText      = ctx.UI.CreateInfoText
+local CreateStatRow       = ctx.UI.CreateStatRow
 
--- Color Palette
+-- Color Palette (UI-local override of ctx.Colors)
 local Colors = {
-    Success = Color3.fromRGB(0, 255, 127),
-    Warning = Color3.fromRGB(255, 194, 68),
-    Danger = Color3.fromRGB(255, 68, 68),
-    Info = Color3.fromRGB(68, 138, 255),
-    TextMuted = Color3.fromRGB(150, 150, 150),
-    Accent = Color3.fromRGB(0, 212, 255),
-    Background = Color3.fromRGB(30, 30, 35),
-    Surface = Color3.fromRGB(45, 45, 50),
-    Border = Color3.fromRGB(60, 60, 65)
+    Success   = ctx.Colors.Success,
+    Warning   = ctx.Colors.Warning,
+    Danger    = ctx.Colors.Error,
+    Info      = ctx.Colors.Electric,
+    TextMuted = ctx.Colors.TextMuted,
+    Accent    = ctx.Colors.Accent,
+    Background= ctx.Colors.Background,
+    Surface   = ctx.Colors.Surface,
+    Border    = ctx.Colors.Border,
 }
+
+-- ============================================================
+-- HELPERS
+-- ============================================================
+
+local function getEggCategoryOptions()
+    local options = {}
+    local seen = {}
+
+    -- Pull the live snapshot of area eggs.
+    local records = {}
+    if ctx.GetAreaEggs then
+        local ok, snap = pcall(ctx.GetAreaEggs)
+        if ok and type(snap) == "table" then records = snap end
+    end
+
+    for _, rec in ipairs(records) do
+        if rec.AssetCategory and not seen[rec.AssetCategory] then
+            seen[rec.AssetCategory] = true
+            table.insert(options, rec.AssetCategory)
+        end
+        if rec.AreaId and not seen[rec.AreaId] then
+            seen[rec.AreaId] = true
+            table.insert(options, rec.AreaId)
+        end
+    end
+
+    -- Always offer common type placeholders so the dropdown isn't empty.
+    for _, typeName in ipairs(ctx.Data.GEAR_DATA.TYPES) do
+        if not seen[typeName] then
+            seen[typeName] = true
+            table.insert(options, typeName)
+        end
+    end
+
+    if #options == 0 then
+        return {"No eggs detected"}
+    end
+    return options
+end
 
 -- ============================================================
 -- HOME TAB
@@ -39,30 +80,32 @@ local Colors = {
 ctx.registerPage("Home", function()
     local card, content = CreateSectionCard("🏠 Welcome to Steal An Egg!", 1, Colors.Info)
     CreateSubHeader(content, "Quick Start")
-    
-    CreateInfoText(content, "💡 Getting Started", 
+
+    CreateInfoText(content, "💡 Getting Started",
         "1. Toggle ENABLE to activate all features\n" ..
-        "2. Use TRUST BUILD indicator to monitor anti-cheat safety\n" ..
-        "3. Enable stealth mode for maximum undetectability\n\n" ..
-        "**Note:** Wait for trust score to reach 80% before heavy automation",
+        "2. Auto-Farm grabs the closest dropped area egg (fitur utama)\n" ..
+        "3. Auto-Hunt = DNA steal (mati jika flag dev off; farm tetap jalan)\n\n" ..
+        "**Note:** Stay outside the safe zone or the game will block your requests.",
         Colors.TextMuted
     )
-    
+
     -- Trust Status Display
     if typeof(ctx.CheckTrustStatus) == "function" then
         local trustStatus = ctx.CheckTrustStatus()
-        
-        local statusColor = trustStatus.score >= 80 and Colors.Success or 
+
+        local statusColor = trustStatus.score >= 80 and Colors.Success or
                            trustStatus.score >= 50 and Colors.Warning or Colors.Danger
-        
-        CreateStatRow(content, "Trust Score", string.format("%d%% (%s)", trustStatus.score, trustStatus.status:upper()), statusColor)
+
+        CreateStatRow(content, "Trust Score", string.format("%d%% (%s)", trustStatus.score, (trustStatus.status or "unknown"):upper()), statusColor)
     else
         CreateStatRow(content, "Trust Score", "Loading...", Colors.Accent)
     end
-    
+
     -- Session Info
     CreateStatRow(content, "Session", "Running", Colors.Success)
-    CreateStatRow(content, "Auto-Farm", ctx.States.autoFarm and "ON ✅" or "OFF ❌", ctx.States.autoFarm and Colors.Success or Colors.TextMuted)
+    CreateStatRow(content, "Auto-Farm",  ctx.States.autoFarm  and "ON ✅" or "OFF ❌", ctx.States.autoFarm  and Colors.Success or Colors.TextMuted)
+    CreateStatRow(content, "Auto-Hunt",  ctx.States.autoHunt  and "ON ✅" or "OFF ❌", ctx.States.autoHunt  and Colors.Success or Colors.TextMuted)
+    CreateStatRow(content, "Auto-Collect", ctx.States.autoCollect and "ON ✅" or "OFF ❌", ctx.States.autoCollect and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Smooth Travel", ctx.States.smoothTravel and "ON ✅" or "OFF ❌", ctx.States.smoothTravel and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Stealth Mode", ctx.States.stealthMode and "ACTIVE 🔒" or "INACTIVE ⚠️", ctx.States.stealthMode and Colors.Success or Colors.Warning)
 end)
@@ -74,101 +117,179 @@ end)
 ctx.registerPage("Auto Farm", function()
     local card, content = CreateSectionCard("⛏️ Auto Farm Settings", 1, Colors.Success)
     CreateSubHeader(content, "Automation Controls")
-    
-    -- Main toggle
-    CreateToggle(content, "ENABLE Auto Farm", "enabled", "Activate all farming systems", function(state)
-        print("[StealAnEgg] Global enabled:", state)
-        task.wait(0.5)
-        
-        if state and ctx.WaitForTrustBuild then
-            -- Ensure trust is built before enabling other features
-            ctx.WaitForTrustBuild()
+
+    -- Main global enable
+    CreateToggle(content, "ENABLE Auto Farm", "enabled",
+        "Activate all farming systems (auto-farm + auto-collect + auto-hunt)", function(state)
+            ctx.States.enabled = state and true or false
+            print("[StealAnEgg] Global enabled:", state)
+            task.wait(0.2)
+            if state and ctx.WaitForTrustBuild then
+                ctx.WaitForTrustBuild()
+            end
+            if state then
+                if ctx.SetAutoFarm then ctx.SetAutoFarm(true) end
+                if ctx.SetAutoHunt then ctx.SetAutoHunt(true) end
+                if ctx.SetAutoCollect then ctx.SetAutoCollect(true) end
+            else
+                if ctx.SetAutoFarm then ctx.SetAutoFarm(false) end
+                if ctx.SetAutoHunt then ctx.SetAutoHunt(false) end
+                if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
+            end
         end
-    end)
-    
+    )
+
     CreateSubHeader(content, "Farm Actions")
-    
-    -- Auto collect eggs
-    CreateToggle(content, "Auto Collect Eggs", "autoCollect", 
-        "Automatically collect nearby eggs when trusted", function(state)
-        print("[StealAnEgg] Auto collect:", state)
-    end)
-    
-    -- Auto hunt NPCs
-    CreateToggle(content, "Auto Hunt NPCs", "autoHunt", 
-        "Automatically attack and farm nearby enemies", function(state)
-        print("[StealAnEgg] Auto hunt:", state)
-    end)
-    
+
+    -- Auto collect eggs (carries dropped area eggs)
+    CreateToggle(content, "Auto Collect Eggs", "autoCollect",
+        "Carries the closest dropped area egg via RequestCarryAreaEgg", function(state)
+            if ctx.SetAutoCollect then
+                ctx.SetAutoCollect(state)
+            else
+                ctx.States.autoCollect = state and true or false
+            end
+            print("[StealAnEgg] Auto collect:", state)
+        end
+    )
+
+    -- Auto hunt pets (DNA-steal from other pens)
+    CreateToggle(content, "Auto Hunt Pets", "autoHunt",
+        "DNA-steal via REQUEST_STEAL_TARGET (idle jika fitur dimatikan dev)", function(state)
+            if ctx.SetAutoHunt then
+                ctx.SetAutoHunt(state)
+            else
+                ctx.States.autoHunt = state and true or false
+            end
+            print("[StealAnEgg] Auto hunt:", state)
+        end
+    )
+
     -- Stealth mode
-    CreateToggle(content, "🔒 Stealth Mode", "stealthMode", 
-        "Maximize undetectability (slower but safer)", function(state)
-        print("[StealAnEgg] Stealth mode:", state)
-    end)
-    
-    CreateSubHeader(content, "Smart Features")
-    
+    CreateToggle(content, "🔒 Stealth Mode", "stealthMode",
+        "Throttles travel speed for safer movement", function(state)
+            if ctx.SetStealth then
+                ctx.SetStealth(state)
+            else
+                ctx.States.stealthMode = state and true or false
+            end
+            print("[StealAnEgg] Stealth mode:", state)
+        end
+    )
+
+    CreateSubHeader(content, "Convenience")
+
     -- Anti-AFK system
-    CreateToggle(content, "Anti-AFK Movement", "antiAFK", 
-        "Perform small movements to avoid AFK detection", function(state)
-        if ctx.EnableAntiAFK then
-            ctx.EnableAntiAFK(state)
+    CreateToggle(content, "Anti-AFK Movement", "antiAFK",
+        "Subtle motion pulses every " .. tostring(ctx.TRUST_SETTINGS.ANTI_AFK_INTERVAL) .. "s to avoid idle kicks", function(state)
+            ctx.States.antiAFK = state and true or false
+            if ctx.EnableAntiAFK then
+                ctx.EnableAntiAFK(state)
+            end
         end
-    end)
-    
+    )
+
     -- Smooth travel
-    CreateToggle(content, "Smooth Travel", "smoothTravel", 
-        "Enable gentle movement (trust-safe flying)", function(state)
-        if ctx.EnableSmoothTravel then
-            ctx.EnableSmoothTravel(state)
+    CreateToggle(content, "Smooth Travel", "smoothTravel",
+        "CFrame-tween movement instead of instant teleport", function(state)
+            ctx.States.smoothTravel = state and true or false
+            if ctx.EnableSmoothTravel then
+                ctx.EnableSmoothTravel(state)
+            end
         end
-    end)
-    
-    -- Travel speed slider
-    CreateSlider(content, "Movement Speed", 0.5, 10, "travelSpeed", "", function(value)
+    )
+
+    -- Travel speed slider (studs/s)
+    CreateSlider(content, "Travel Speed", 4, 30, "travelSpeed", "studs/s", function(value)
+        if ctx.TRUST_SETTINGS then
+            ctx.TRUST_SETTINGS.SMOOTH_TRAVEL_SPEED = value
+        end
         print("[StealAnEgg] Travel speed set to:", value)
     end)
-    
+
     CreateSubHeader(content, "Actions")
-    
+
     -- Manual collection button
-    CreateActionButton(content, "🥚 Force Egg Collection", function()
+    CreateActionButton(content, "🥚 Steal Closest Egg (Manual)", function()
         if ctx.CollectEgg then
-            local success = pcall(ctx.CollectEgg)
-            if success then
-                print("[StealAnEgg] ✓ Manual egg collection triggered")
+            local ok, info = ctx.CollectEgg()
+            if ok then
+                print("[StealAnEgg] ✓ Manual egg collection triggered (dist " .. tostring(info) .. ")")
+            else
+                warn("[StealAnEgg] Manual collection failed:", tostring(info))
             end
         end
     end, Colors.Success)
-    
-    -- Manual combat button
-    CreateActionButton(content, "⚔️ Force Combat Attack", function()
+
+    -- Manual hunt button
+    CreateActionButton(content, "⚔️ Steal DNA (Manual)", function()
         if ctx.HuntNPC then
-            local success = pcall(ctx.HuntNPC)
-            if success then
-                print("[StealAnEgg] ✓ Manual combat attack triggered")
+            local ok, info = ctx.HuntNPC()
+            if ok then
+                print("[StealAnEgg] ✓ Manual DNA steal triggered")
+            else
+                warn("[StealAnEgg] Manual hunt failed:", tostring(info))
             end
         end
     end, Colors.Danger)
-    
+
+    -- Hatch all ready eggs
+    CreateActionButton(content, "🐣 Hatch Ready Eggs", function()
+        if ctx.HatchReadyEggs then
+            local n = ctx.HatchReadyEggs()
+            print("[StealAnEgg] Hatched", n, "eggs")
+        end
+    end, Colors.Accent)
+
+    -- Skip growth for all
+    CreateActionButton(content, "⏩ Skip Growth (All)", function()
+        if ctx.SkipGrowthForAll then
+            local n = ctx.SkipGrowthForAll()
+            print("[StealAnEgg] Skipped growth on", n, "eggs")
+        end
+    end, Colors.Warning)
+
+    -- Upgrade base
+    CreateActionButton(content, "🏗️ Upgrade Base", function()
+        if ctx.UpgradeBase then
+            local ok = ctx.UpgradeBase()
+            print("[StealAnEgg] Base upgrade:", ok and "requested" or "rejected")
+        end
+    end, Colors.Info)
+
+    -- Teleport home
+    CreateActionButton(content, "🏠 Teleport to Base", function()
+        if ctx.TeleportToBase then
+            local ok, err = ctx.TeleportToBase()
+            if not ok then
+                warn("[StealAnEgg] Teleport failed:", tostring(err))
+            end
+        end
+    end, Colors.Info)
+
     -- Reset button
     CreateActionButton(content, "🔄 Reset & Rebuild Trust", function()
-        ctx.States.enabled = false
-        ctx.States.autoFarm = false
+        ctx.States.enabled    = false
+        ctx.States.autoFarm   = false
+        ctx.States.autoHunt   = false
+        ctx.States.autoCollect= false
         ctx.States.smoothTravel = false
-        ctx.States.antiAFK = false
-        
+        ctx.States.antiAFK    = false
         if not ctx.States.stealthMode then
             ctx.States.stealthMode = true
         end
-        
-        print("[StealAnEgg] ✓ Trust reset initiated - standing still to rebuild...")
+        if ctx.SetAutoFarm then ctx.SetAutoFarm(false) end
+        if ctx.SetAutoHunt then ctx.SetAutoHunt(false) end
+        if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
+        if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
+        if ctx.EnableAntiAFK then ctx.EnableAntiAFK(false) end
+        print("[StealAnEgg] ✓ Trust reset - all loops stopped")
     end, Colors.Warning)
-    
-    CreateInfoText(content, "ℹ Safety Tip", 
-        "**Always stay in stealth mode** to avoid trust freeze.\n" ..
+
+    CreateInfoText(content, "ℹ Safety Tip",
+        "**Stay out of the safe zone** or ToolGameplayGuard will block your requests.\n" ..
         "**Wait for trust score ≥80%** before intensive actions.\n" ..
-        "**Avoid rapid movements** during initial game start.",
+        "**Smooth travel** uses CFrame tweens, not WalkSpeed - avoids speed-flag triggers.",
         Colors.Accent
     )
 end)
@@ -179,34 +300,33 @@ end)
 
 ctx.registerPage("Egg Tracker", function()
     local card, content = CreateSectionCard("🥚 Egg Tracking", 1, Colors.Accent)
-    CreateSubHeader(content, "Egg Collection Monitor")
-    
-    CreateInfoText(content, "📊 How It Works", 
-        "**Auto Detection:** Automatically finds nearby eggs using proximity checks\n\n" ..
-        "**Safe Collection:** Only collects when:\n" ..
-        "- Trust score ≥ 80%\n" ..
-        "- Within 15 stud range\n" ..
-        "- In trust-building phase avoided\n\n" ..
-        "**Remote Integration:** Uses legitimate egg collection remotes to appear natural",
+    CreateSubHeader(content, "Area Egg Monitor")
+
+    CreateInfoText(content, "📊 How It Works",
+        "**Auto Detection:** Reads EggCmds.GetAreaEggSnapshot() and walks every record.\n\n" ..
+        "**Safe Steal:** Only carries eggs that are in `Dropped` state.\n" ..
+        "**Server-side validation:** The game checks distance + ownership server-side.\n" ..
+        "**Range filter:** 350 studs around your character is the practical upper bound.\n\n" ..
+        "**Note:** There is no `collectEgg` remote - the only legal API is `RequestCarryAreaEgg(Uid)`.",
         Colors.TextMuted
     )
-    
-    -- Dynamic dropdown for egg types (to be populated)
-    CreateDynamicDropdown(content, "Filter by Type", getEggTypeOptions, "eggTypeFilter", function(selected)
+
+    -- Dynamic dropdown for egg types (populated live from area records)
+    CreateDynamicDropdown(content, "Filter by AssetCategory", getEggCategoryOptions, "eggTypeFilter", function(selected)
         print("[StealAnEgg] Filter changed to:", selected)
     end)
-    
+
     CreateSubHeader(content, "Rarity Priority")
-    
-    -- Multi-select for rarity preferences
-    CreateMultiSelect(content, "Priority Rarities", ctx.Data.GEAR_DATA.RARITIES, "rarityPriorities", function(selected)
-        print("[StealAnEgg] Rarity priorities:", table.concat(selected, ", "))
+
+    -- Multi-select for category preferences
+    CreateMultiSelect(content, "Priority Categories", ctx.Data.GEAR_DATA.TYPES, "rarityPriorities", function(selected)
+        print("[StealAnEgg] Priority categories:", table.concat(selected, ", "))
     end)
-    
-    CreateInfoText(content, "🎯 Auto-Collection Behavior", 
-        "**Sequential Targeting:** Prioritizes closest first\n" ..
-        "**Cooldown Protection:** Waits 0.5s between collections\n" ..
-        "**Stealth Approach:** Moves slowly toward target before collecting",
+
+    CreateInfoText(content, "🎯 Auto-Collection Behavior",
+        "**Sequential Targeting:** Picks the closest dropped egg.\n" ..
+        "**Cooldown Protection:** Waits 0.7s between attempts.\n" ..
+        "**Safe-Zone Aware:** Pauses while in tagged safe zones.",
         Colors.Success
     )
 end)
@@ -218,61 +338,62 @@ end)
 ctx.registerPage("Movement", function()
     local card, content = CreateSectionCard("🚶 Movement Systems", 1, Colors.Warning)
     CreateSubHeader(content, "Anti-Cheat Movement Configuration")
-    
-    CreateInfoText(content, "⚠ Trust-Based Movement", 
+
+    CreateInfoText(content, "⚠ Trust-Based Movement",
         "This section controls **movement validation bypass** systems designed to work with the game's trust scoring mechanism.\n\n" ..
-        "**IMPORTANT:** The trust system monitors:\n" ..
-        "- WalkSpeed variations\n" ..
-        "- Jump height patterns\n" ..
-        "- Teleport/clip detection\n" ..
-        "- Velocity anomalies",
+        "**Watched signals:**\n" ..
+        "- WalkSpeed changes (mitigated by CFrame tweens, not WalkSpeed writes)\n" ..
+        "- Teleport/clip detection (mitigated by chunked tween steps)\n" ..
+        "- Idle kick timer (mitigated by Anti-AFK pulses)\n" ..
+        "- Tool use inside safe zones (mitigated by ToolGameplayGuard.CanActivateLocal)",
         Colors.TextMuted
     )
-    
-    CreateSubHeader(content, "Trust Building Optimization")
-    
+
+    CreateSubHeader(content, "Trust Building")
+
     -- Min trust build time
-    CreateSlider(content, "Min Trust Build Time", 2, 20, "minTrustTime", "s", function(value)
+    CreateSlider(content, "Trust Warmup", 2, 20, "minTrustTime", "s", function(value)
         ctx.TRUST_SETTINGS.MIN_TRUST_BUILD_TIME = value
         print("[StealAnEgg] Trust build time:", value .. "s")
     end)
-    
-    -- Max walkspeed variation
+
+    -- Max walkspeed variation (kept for visual parity; we do not write WalkSpeed)
     CreateSlider(content, "WalkSpeed Variation Limit", 0, 5, "walkspeedLimit", "%", function(value)
         ctx.TRUST_SETTINGS.MAX_WALK_SPEED_VARIATION = value / 100
         print("[StealAnEgg] Walkspeed limit:", value .. "%")
     end)
-    
+
     -- Max jump height variation
     CreateSlider(content, "Jump Height Variation", 1, 3, "jumpHeightLimit", "x", function(value)
         ctx.TRUST_SETTINGS.MAX_JUMP_HEIGHT_VARIATION = value
         print("[StealAnEgg] Jump height multiplier:", value .. "x")
     end)
-    
-    CreateSubHeader(content, "Traversal Methods")
-    
+
+    CreateSubHeader(content, "Traversal")
+
     -- Smooth travel configuration
-    CreateToggle(content, "Use Smooth Travel", "smoothTravel", 
-        "Gentle movement instead of instant teleport", function(state)
-        if ctx.EnableSmoothTravel then
-            ctx.EnableSmoothTravel(state)
+    CreateToggle(content, "Use Smooth Travel", "smoothTravel",
+        "Chunked CFrame tween instead of instant teleport", function(state)
+            ctx.States.smoothTravel = state and true or false
+            if ctx.EnableSmoothTravel then
+                ctx.EnableSmoothTravel(state)
+            end
         end
-    end)
-    
-    CreateSlider(content, "Smooth Travel Speed", 1, 30, "smoothTravelSpeed", "stud/s", function(value)
+    )
+
+    CreateSlider(content, "Smooth Travel Speed", 4, 30, "smoothTravelSpeed", "studs/s", function(value)
         ctx.TRUST_SETTINGS.SMOOTH_TRAVEL_SPEED = value
         print("[StealAnEgg] Smooth travel speed:", value .. " stud/s")
     end)
-    
-    CreateInfoText(content, "🛡️ Movement Best Practices", 
+
+    CreateInfoText(content, "🛡️ Movement Best Practices",
         "**DO:**\n" ..
-        "- Enable smooth travel for long-distance movement\n" ..
-        "- Allow trust to build after respawn\n" ..
-        "- Use anti-AFK to maintain movement history\n\n" ..
+        "- Use smooth travel for long-distance movement\n" ..
+        "- Allow trust warmup after spawning\n" ..
+        "- Keep Anti-AFK enabled to dodge idle kicks\n\n" ..
         "**DON'T:**\n" ..
-        "- Rapidly change speeds\n" ..
-        "- Instant teleport large distances\n" ..
-        "- Disable gravity while moving",
+        "- Rapidly change WalkSpeed (we don't touch it - CFrame only)\n" ..
+        "- Use tools inside safe zones (the guard module blocks them)",
         Colors.Info
     )
 end)
@@ -284,54 +405,74 @@ end)
 ctx.registerPage("Settings", function()
     local card, content = CreateSectionCard("⚙️ Advanced Settings", 1, Colors.Danger)
     CreateSubHeader(content, "General Configuration")
-    
+
     -- Keybind settings
-    CreateInfoText(content, "🔑 Global Keybinds", 
+    CreateInfoText(content, "🔑 Global Keybinds",
         "**Enabled/Toggled:** [Insert]\n" ..
         "**Open Menu:** [Insert]\n" ..
         "**Trust Check:** [Insert]",
         Colors.TextMuted
     )
-    
+
     CreateSubHeader(content, "Debug & Monitoring")
-    
+
     -- Debug logging
-    CreateToggle(content, "Verbose Logging", "debugLogging", "Show detailed action logs in chat", function(state)
+    CreateToggle(content, "Verbose Logging", "debugLogging", "Show detailed action logs in console", function(state)
+        ctx.States.debugLogging = state and true or false
         print("[StealAnEgg] Debug logging:", state)
     end)
-    
+
     -- Trust monitoring interval
     CreateSlider(content, "Trust Check Interval", 1, 10, "trustCheckInterval", "s", function(value)
+        ctx.TRUST_SETTINGS.TRUST_CHECK_INTERVAL = value
         print("[StealAnEgg] Trust check interval:", value .. "s")
     end)
-    
+
     CreateSubHeader(content, "System Information")
-    
+
     -- Session ID display
     CreateStatRow(content, "Session ID", tostring(_G._MiracleHubSession), Colors.Accent)
     CreateStatRow(content, "Mobile Mode", tostring(_G._MiracleHubIsMobile or false), Colors.TextMuted)
     CreateStatRow(content, "Game Name", ctx.GAME_NAME, Colors.Info)
-    
+    CreateStatRow(content, "Place ID", tostring(ctx.PLACE_ID), Colors.TextMuted)
+
+    -- Module availability (real signal that the wiring is right)
+    local libStatus = {}
+    for _, name in ipairs({"Network", "EggCmds", "AssetCmds", "BaseUpgradeClient", "Save", "ToolGameplayGuard", "PlotCmds"}) do
+        local ok = pcall(function()
+            return require(game:GetService("ReplicatedStorage").Library.Client[name])
+        end)
+        table.insert(libStatus, name .. (ok and " ✓" or " ✗"))
+    end
+    CreateStatRow(content, "Libraries", table.concat(libStatus, ", "),
+        Colors.Success)
+
     -- Version info
-    CreateInfoText(content, "📋 System Status", 
+    CreateInfoText(content, "📋 System Status",
         "**All systems operational**\n" ..
-        "**Anti-cheat evasion**: ACTIVE\n" ..
-        "**Trust building**: READY",
+        "**Anti-cheat evasion**: CFrame-tween based (safer than WalkSpeed)\n" ..
+        "**Trust building**: ready (uses warmup + safe-zone detection)",
         Colors.Success
     )
-    
+
     CreateSubHeader(content, "Safety & Cleanup")
-    
+
     -- Emergency disable
     CreateActionButton(content, "🚨 EMERGENCY DISABLE", function()
-        ctx.States.enabled = false
-        ctx.States.autoFarm = false
+        ctx.States.enabled    = false
+        ctx.States.autoFarm   = false
+        ctx.States.autoHunt   = false
+        ctx.States.autoCollect= false
         ctx.States.smoothTravel = false
-        ctx.States.antiAFK = false
-        
+        ctx.States.antiAFK    = false
+        if ctx.SetAutoFarm    then ctx.SetAutoFarm(false)    end
+        if ctx.SetAutoHunt    then ctx.SetAutoHunt(false)    end
+        if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
+        if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
+        if ctx.EnableAntiAFK  then ctx.EnableAntiAFK(false)  end
         print("[StealAnEgg] 🚨 EMERGENCY DISABLE - All systems halted")
     end, Colors.Danger)
-    
+
     -- Full cleanup
     CreateActionButton(content, "🧹 Complete Cleanup", function()
         if _G.GameCleanup then
@@ -342,42 +483,6 @@ ctx.registerPage("Settings", function()
         print("[StealAnEgg] ✅ Full cleanup executed")
     end, Colors.Danger)
 end)
-
--- ============================================================
--- HELPER FUNCTIONS FOR DYNAMIC DROPDOWNS
--- ============================================================
-
-local function getEggTypeOptions()
-    local options = {}
-    
-    -- Get egg models from workspace
-    local eggs = {}
-    for _, instance in ipairs(workspace:GetDescendants()) do
-        if instance:IsA("Model") and instance.Name:lower():find("egg") and instance.Parent == workspace then
-            table.insert(eggs, instance)
-        end
-    end
-    
-    local seenNames = {}
-    
-    for _, egg in ipairs(eggs) do
-        local name = egg.Name
-        if not seenNames[name] then
-            table.insert(options, name)
-            seenNames[name] = true
-        end
-    end
-    
-    -- Add common types
-    local commonTypes = {"Normal Egg", "Dragon Egg", "Demonic Egg"}
-    for _, t in ipairs(commonTypes) do
-        if not seenNames[t] then
-            table.insert(options, t)
-        end
-    end
-    
-    return #options > 0 and options or {"No eggs detected"}
-end
 
 print("[MiracleHub] Steal An Egg Pages Module Loaded | Ready for UI registration")
 end

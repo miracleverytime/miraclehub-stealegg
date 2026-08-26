@@ -1,5 +1,8 @@
 # Git ignore file for MiracleHub-SteaLEgg
 
+# Game reference scripts (decompiled dump, not part of the hub)
+scripts-Steal-An-Egg/
+
 # Dependencies & Packages
 node_modules/
 package-lock.json

@@ -1,6 +1,6 @@
 -- Steal An Egg - Miracle Hub Core Configuration
 -- File: core.lua
-
+--
 -- Loader contract (loader.lua):
 --   loadstring(src)()        -> returns a function
 --   pcall(moduleFn, ctx)     -> invokes module with shared ctx
@@ -18,10 +18,11 @@ local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 
 return function(ctx)
+    ctx._SessionStartTime = ctx._SessionStartTime or tick()
+
     -- ── Identity / metadata ───────────────────────────────────────────
     ctx.GAME_NAME = "Steal An Egg"
     ctx.PLACE_ID  = 107778070777162
-    ctx.SEARCH_ITEMS = {"egg", "farm", "hunt", "steal", "travel", "hatch", "equip"}
     ctx.ACTIVE_LOOP_KEYS   = {}
     ctx.ACTIVE_LOOP_LABELS = {}
 
@@ -34,17 +35,21 @@ return function(ctx)
         {name = "Settings",   key = "settings",  icon = "⚙️"},
     }
 
-    -- ── Remote/Network References (path strings, resolved at runtime) ─
+    -- ── Remote/Network References ──────────────────────────────────────
+    -- These are the literal remote names that appear under
+    -- ReplicatedStorage.Network in the real game. The Network_m client
+    -- library (loaded by logic.lua) wraps all of these in safe
+    -- Fire/Invoke helpers, so this table is purely informational.
     ctx.Data = {
         PACKETS = {
-            AdminAbuse_GetActiveEvents = "ReplicatedStorage.Network.AdminAbuse_GetActiveEvents",
-            AdminAbuse_GetEventNames   = "ReplicatedStorage.Network.AdminAbuse_GetEventNames",
-            ExperienceEventPrompt_MarkSeen = "ReplicatedStorage.Network.Experience Event Prompt: Mark Seen",
-            ExperienceEventPrompt_GetState = "ReplicatedStorage.Network.Experience Event Prompt: Get State",
+            AdminAbuse_GetActiveEvents = "AdminAbuse_GetActiveEvents",
+            AdminAbuse_GetEventNames   = "AdminAbuse_GetEventNames",
+            ExperienceEventPrompt_MarkSeen = "Experience Event Prompt: Mark Seen",
+            ExperienceEventPrompt_GetState = "Experience Event Prompt: Get State",
         },
         GUARDS = {
-            GuardTutorial_RequestRuntimeState = "ReplicatedStorage.Network.GuardTutorial: RequestRuntimeState",
-            GuardTutorial_GetState            = "ReplicatedStorage.Network.ServerLuck:GetState",
+            GuardTutorial_RequestRuntimeState = "GuardTutorial: RequestRuntimeState",
+            GuardTutorial_GetState            = "ServerLuck:GetState",
         },
         GEAR_DATA = {
             RARITIES = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical"},
@@ -56,13 +61,18 @@ return function(ctx)
     }
 
     -- ── Network Endpoints (resolved at runtime by logic.lua) ──────────
+    -- These are the groupings of the real NETWORK_MAP exposed under
+    -- ReplicatedStorage.Library.Globals.Constants.NETWORK_MAP.
     ctx.NETWORK_ENDPOINTS = {
-        ADMIN_ABUSE      = "AdminAbuse",
-        GUARD_TUTORIAL   = "GuardTutorial",
+        ADMIN_ABUSE       = "AdminAbuse",
+        GUARD_TUTORIAL    = "GuardTutorial",
         EXPERIENCE_EVENTS = "ExperienceEventPrompt",
-        BACKPACK         = "Backpack",
-        OFFLINE_ASSETS   = "OfflineAssets",
-        ACTIVE_ASSETS    = "ActiveAssets",
+        BACKPACK          = "Backpack",
+        OFFLINE_ASSETS    = "OfflineAssets",
+        ACTIVE_ASSETS     = "ActiveAssets",
+        EGGS              = "Eggs",
+        PLOTS             = "Plots",
+        GUARDS            = "Guards",
     }
 
     -- ── Movement trust settings (anti-cheat evasion) ─────────────────
@@ -71,8 +81,8 @@ return function(ctx)
         MAX_WALK_SPEED_VARIATION   = 0.5,
         MAX_JUMP_HEIGHT_VARIATION  = 1.2,
         MIN_TRUST_BUILD_TIME       = 5,
-        SMOOTH_TRAVEL_SPEED        = 1.5,
-        ANTI_AFK_INTERVAL          = 30,
+        SMOOTH_TRAVEL_SPEED        = 16,
+        ANTI_AFK_INTERVAL          = 25,
     }
 
     -- ── Mutable game-state flags (logic.lua flips these) ──────────────
@@ -89,8 +99,6 @@ return function(ctx)
     }
 
     -- ── Color Palette (required by ui.lua line 18-51) ─────────────────
-    -- ui.lua expects ctx.Colors.Background to exist on first read,
-    -- so these keys MUST be populated here.
     ctx.Colors = {
         Background          = Color3.fromRGB(10, 13, 16),
         BackgroundLight     = Color3.fromRGB(18, 22, 27),
@@ -126,6 +134,8 @@ return function(ctx)
         huntNPCs        = {},
         lastTrustCheck  = 0,
         trustScore      = 0,
+        lastStealUid    = nil,
+        lastHuntUid     = nil,
     }
 
     -- ── Service refs (live, resolved on-demand via metatable) ─────────
@@ -136,12 +146,6 @@ return function(ctx)
     })
 
     -- ── Service handles that ui.lua reads at line 22-24 ───────────────
-    -- These four names are referenced explicitly by ui.lua as locals:
-    --   local playerGui          = ctx.playerGui
-    --   local player             = ctx.player
-    --   local TweenService       = ctx.TweenService
-    --   local UserInputService   = ctx.UserInputService
-    --   local RunService         = ctx.RunService
     ctx.playerGui        = playerGui
     ctx.player           = localPlayer
     ctx.TweenService     = TweenService
@@ -150,14 +154,10 @@ return function(ctx)
     ctx.Players          = Players
 
     -- ── Session marker (read by bootstrap.lua line 1338/469/948) ──────
-    -- bootstrap.lua guards its reveal/minimize task.delay callbacks with
-    -- `if _G._MiracleHubSession ~= ctx.SESSION then return end`.
-    -- ctx.SESSION MUST be set (and equal _G._MiracleHubSession) or the
-    -- reveal sequence returns early → menu never opens.
     _G._MiracleHubSession = (_G._MiracleHubSession or 0) + 1
     ctx.SESSION           = _G._MiracleHubSession
 
-    -- ── Global mirror (read by logic.lua line 5-7) ────────────────────
+    -- ── Global mirror (read by logic.lua) ─────────────────────────────
     _G._MiracleHubSteaLEgg = ctx
 
     print("[MiracleHub] Steal An Egg Core Loaded | Session:", _G._MiracleHubSession)
