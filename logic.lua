@@ -217,6 +217,13 @@ local function getAllAreaEggs()
     return snap.Records or {}
 end
 
+-- True if this is one of the local player's own "FirstAreaEgg_<uid>_..." starter eggs
+-- (those sit in the player's own nest and must NOT be "collected").
+local function isFirstAreaOwnEgg(uid)
+    local owner = string.match(uid or "", "^FirstAreaEgg_(-?%d+)_")
+    return owner ~= nil and tonumber(owner) == localPlayerId
+end
+
 local function nearestCarryableEgg(maxDistance)
     local _, _, root = getCharacterAndRoot()
     if not root then return nil, "no_character" end
@@ -225,7 +232,8 @@ local function nearestCarryableEgg(maxDistance)
 
     local best, bestDist = nil, maxDistance or math.huge
     for _, rec in ipairs(records) do
-        if rec.State == "Dropped" and rec.BoundsCFrame then
+        local stealable = rec.State == "Slot" or rec.State == "Dropped"
+        if stealable and rec.BoundsCFrame and not isFirstAreaOwnEgg(rec.Uid) then
             local dist = (rec.BoundsCFrame.Position - root.Position).Magnitude
             if dist < bestDist then
                 best, bestDist = rec, dist
@@ -246,6 +254,19 @@ local function protectMulti(fn)
     return packed[2], packed[3]
 end
 
+-- Forward declarations (StartTravelTo/StopTravel are defined later in the
+-- SMOOTH TRAVEL section; these let CollectEgg reference them as upvalues).
+local StartTravelTo, StopTravel
+
+-- The real game builds this slot key for FirstAreaEgg records and passes it
+-- to RequestCarryAreaEgg (see AreaEggSlotIdentity.BuildSlotKey).
+local function buildSlotKey(rec)
+    if not rec or string.match(rec.Uid or "", "^FirstAreaEgg_") == nil then
+        return nil
+    end
+    return tostring(rec.AreaId) .. ":" .. tostring(rec.NestId)
+end
+
 local function CollectEgg()
     return protectMulti(function()
         if not okEgg or not EggCmds_m or not EggCmds_m.RequestCarryAreaEgg then
@@ -260,7 +281,18 @@ local function CollectEgg()
             return false, "no_carryable_egg"
         end
 
-        local okCarry, errCarry = EggCmds_m.RequestCarryAreaEgg(record.Uid, nil)
+        -- The server validates distance, so walk to the egg before requesting.
+        local _, _, root = getCharacterAndRoot()
+        if root and record.BoundsCFrame then
+            local carryPos = record.BoundsCFrame.Position
+            if (carryPos - root.Position).Magnitude > 8 then
+                StartTravelTo(CFrame.new(carryPos))
+                return false, "approaching_egg"
+            end
+            StopTravel()
+        end
+
+        local okCarry, errCarry = EggCmds_m.RequestCarryAreaEgg(record.Uid, buildSlotKey(record))
         if okCarry == true then
             ctx.RuntimeData.lastStealUid = record.Uid
             return true, dist
@@ -370,7 +402,7 @@ end
 local travelActive = false
 local travelThread = nil
 
-local function StopTravel()
+StopTravel = function()
     travelActive = false
     if travelThread then
         task.cancel(travelThread)
@@ -378,7 +410,7 @@ local function StopTravel()
     end
 end
 
-local function StartTravelTo(targetCFrame, opts)
+StartTravelTo = function(targetCFrame, opts)
     if not targetCFrame or typeof(targetCFrame) ~= "CFrame" then return end
     opts = opts or {}
     StopTravel()
@@ -486,6 +518,8 @@ local function StartFarmLoop()
                 if result == "blocked_by_safezone" then
                     notify("Farm paused: in safe zone", Color3.fromRGB(255, 200, 0), 1.5)
                     task.wait(3)
+                elseif result == "approaching_egg" then
+                    task.wait(0.05) -- keep walking toward the egg
                 elseif result == "no_carryable_egg" then
                     task.wait(2) -- nothing to steal, just wait
                 else
@@ -557,9 +591,13 @@ local function StartCollectLoop()
     collectActive = true
     collectThread = task.spawn(function()
         while collectActive and _G._MiracleHubSession == session do
-            -- Try carrying the closest dropped area egg.
-            local okCarry, _ = CollectEgg()
-            if not okCarry then task.wait(2) else task.wait(0.6) end
+            -- Try carrying the closest stealable area egg.
+            local okCarry, res = CollectEgg()
+            if not okCarry then
+                if res == "approaching_egg" then task.wait(0.05) else task.wait(2) end
+            else
+                task.wait(0.6)
+            end
         end
     end)
 end
