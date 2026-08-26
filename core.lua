@@ -149,11 +149,16 @@ return function(ctx)
     ctx.RunService       = RunService
     ctx.Players          = Players
 
+    -- ── Session marker (read by bootstrap.lua line 1338/469/948) ──────
+    -- bootstrap.lua guards its reveal/minimize task.delay callbacks with
+    -- `if _G._MiracleHubSession ~= ctx.SESSION then return end`.
+    -- ctx.SESSION MUST be set (and equal _G._MiracleHubSession) or the
+    -- reveal sequence returns early → menu never opens.
+    _G._MiracleHubSession = (_G._MiracleHubSession or 0) + 1
+    ctx.SESSION           = _G._MiracleHubSession
+
     -- ── Global mirror (read by logic.lua line 5-7) ────────────────────
-    -- logic.lua reads _G._MiracleHubSteaLEgg and _G._MiracleHubSession
-    -- for backward compatibility with the old self-executing layout.
     _G._MiracleHubSteaLEgg = ctx
-    _G._MiracleHubSession  = (_G._MiracleHubSession or 0) + 1
 
     print("[MiracleHub] Steal An Egg Core Loaded | Session:", _G._MiracleHubSession)
 end
