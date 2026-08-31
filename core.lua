@@ -91,6 +91,10 @@ return function(ctx)
         autoFarm                = false,
         autoHunt                = false,
         autoCollect             = false,
+        autoSteal               = false,
+        stealPreferFirst        = true,
+        stealTweenSpeed         = 130,
+        stealAreaFilter         = "",
         smoothTravel            = false,
         antiAFK                 = false,
         stealthMode             = true,
@@ -136,6 +140,8 @@ return function(ctx)
         trustScore      = 0,
         lastStealUid    = nil,
         lastHuntUid     = nil,
+        stealStolen     = 0,
+        stealFailed     = 0,
     }
 
     -- ── Service refs (live, resolved on-demand via metatable) ─────────

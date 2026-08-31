@@ -106,6 +106,7 @@ ctx.registerPage("Home", function()
     CreateStatRow(content, "Auto-Farm",  ctx.States.autoFarm  and "ON ✅" or "OFF ❌", ctx.States.autoFarm  and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Auto-Hunt",  ctx.States.autoHunt  and "ON ✅" or "OFF ❌", ctx.States.autoHunt  and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Auto-Collect", ctx.States.autoCollect and "ON ✅" or "OFF ❌", ctx.States.autoCollect and Colors.Success or Colors.TextMuted)
+    CreateStatRow(content, "Auto Steal", ctx.States.autoSteal and "ON ✅" or "OFF ❌", ctx.States.autoSteal and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Smooth Travel", ctx.States.smoothTravel and "ON ✅" or "OFF ❌", ctx.States.smoothTravel and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Stealth Mode", ctx.States.stealthMode and "ACTIVE 🔒" or "INACTIVE ⚠️", ctx.States.stealthMode and Colors.Success or Colors.Warning)
 end)
@@ -131,10 +132,12 @@ ctx.registerPage("Auto Farm", function()
                 if ctx.SetAutoFarm then ctx.SetAutoFarm(true) end
                 if ctx.SetAutoHunt then ctx.SetAutoHunt(true) end
                 if ctx.SetAutoCollect then ctx.SetAutoCollect(true) end
+                if ctx.SetAutoSteal then ctx.SetAutoSteal(true) end
             else
                 if ctx.SetAutoFarm then ctx.SetAutoFarm(false) end
                 if ctx.SetAutoHunt then ctx.SetAutoHunt(false) end
                 if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
+                if ctx.SetAutoSteal then ctx.SetAutoSteal(false) end
             end
         end
     )
@@ -163,6 +166,52 @@ ctx.registerPage("Auto Farm", function()
             end
             print("[StealAnEgg] Auto hunt:", state)
         end
+    )
+
+    CreateSubHeader(content, "Auto Steal Egg (Tween)")
+
+    -- Auto steal egg: tween ke egg -> ambil -> bawa ke base
+    CreateToggle(content, "🥚 Auto Steal Egg", "autoSteal",
+        "Tween ke egg terdekat, ambil via CarryFieldEgg, lalu bawa ke base & claim", function(state)
+            if ctx.SetAutoSteal then
+                ctx.SetAutoSteal(state)
+            else
+                ctx.States.autoSteal = state and true or false
+            end
+            print("[StealAnEgg] Auto steal:", state)
+        end
+    )
+
+    -- Prefer FirstAreaEgg
+    CreateToggle(content, "Utamakan FirstAreaEgg", "stealPreferFirst",
+        "Prioritaskan egg FirstAreaEgg_ (dekat base, mudah dicuri)", function(state)
+            ctx.States.stealPreferFirst = state and true or false
+            print("[StealAnEgg] Prefer FirstAreaEgg:", state)
+        end
+    )
+
+    -- Area filter
+    CreateDropdown(content, "Filter Area", {"", "Forest", "Lake", "Desert", "Snow", "Volcano", "Prehistoric", "Jungle", "Cosmic", "Abyss Ocean", "Titan Temple", "Cherry Blossom"}, "stealAreaFilter", function(value)
+        ctx.States.stealAreaFilter = value
+        print("[StealAnEgg] Steal area filter:", value)
+    end)
+
+    -- Tween speed
+    CreateSlider(content, "Tween Speed", 60, 160, "stealTweenSpeed", "studs/s", function(value)
+        ctx.States.stealTweenSpeed = value
+        print("[StealAnEgg] Steal tween speed:", value)
+    end)
+
+    -- Stats
+    CreateStatRow(content, "Stolen (session)", tostring(ctx.RuntimeData.stealStolen or 0), Colors.Success)
+    CreateStatRow(content, "Failed (session)", tostring(ctx.RuntimeData.stealFailed or 0), Colors.Warning)
+
+    CreateInfoText(content, "ℹ Auto Steal Egg",
+        "**Tween 130 studs/dtk** (default) - kecepatan yang lolos anti-teleport server.\n" ..
+        "**Alur:** cari egg Slot terdekat -> tween -> CarryFieldEgg -> tween ke **safe zone** (belakang garis pemisah) -> server auto-claim.\n" ..
+        "**Tidak perlu masuk base/treadmill** - cukup sampai di belakang garis pemisah untuk claim.\n" ..
+        "**Area filter kosong** = semua area. Jangan set speed terlalu tinggi (>160) agar server menerima gerakan.",
+        Colors.Info
     )
 
     -- Stealth mode
@@ -281,6 +330,7 @@ ctx.registerPage("Auto Farm", function()
         if ctx.SetAutoFarm then ctx.SetAutoFarm(false) end
         if ctx.SetAutoHunt then ctx.SetAutoHunt(false) end
         if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
+        if ctx.SetAutoSteal then ctx.SetAutoSteal(false) end
         if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
         if ctx.EnableAntiAFK then ctx.EnableAntiAFK(false) end
         print("[StealAnEgg] ✓ Trust reset - all loops stopped")
@@ -463,11 +513,13 @@ ctx.registerPage("Settings", function()
         ctx.States.autoFarm   = false
         ctx.States.autoHunt   = false
         ctx.States.autoCollect= false
+        ctx.States.autoSteal  = false
         ctx.States.smoothTravel = false
         ctx.States.antiAFK    = false
         if ctx.SetAutoFarm    then ctx.SetAutoFarm(false)    end
         if ctx.SetAutoHunt    then ctx.SetAutoHunt(false)    end
         if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
+        if ctx.SetAutoSteal   then ctx.SetAutoSteal(false)   end
         if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
         if ctx.EnableAntiAFK  then ctx.EnableAntiAFK(false)  end
         print("[StealAnEgg] 🚨 EMERGENCY DISABLE - All systems halted")

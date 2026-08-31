@@ -28,6 +28,15 @@
 - **Auto Hunt NPCs** - Combat automation dengan range check
 - **Smart Targeting** - Prioritize closest targets first
 
+#### 🥚 Auto Steal Egg (Tween Engine)
+- **Tween ke Egg** - Gerak halus 130 studs/dtk (lolos anti-teleport server)
+- **Ambil Otomatis** - `CarryFieldEgg` pada egg `Slot` terdekat
+- **Bawa ke Base** - Tween kembali ke PetArea plot milik sendiri
+- **Auto-Claim** - Server auto-place egg saat sampai di base
+- **Watchdog** - Loop auto-restart jika mati
+- **Area Filter** - Batasi ke area tertentu (Forest, Lake, dll)
+- **Prioritas FirstAreaEgg** - Utamakan egg dekat base
+
 #### 🥚 Egg Tracker
 - **Dynamic Detection** - Real-time egg location scanning
 - **Rarity Priority** - Multi-select preferred egg types
@@ -213,6 +222,15 @@ Game Start → Idle 5 sec → Movement Samples Collected
 - ✅ Guard Tutorial awareness
 - ✅ Emergency disable system
 - ✅ Mobile platform support
+
+### **[v5.1.0]** - Auto Steal Egg Tween Engine
+- ✅ Full steal pipeline: tween ke egg → carry → bawa ke base → auto-claim
+- ✅ Kecepatan tween 130 studs/dtk yang lolos anti-teleport server (teruji live: 8+ egg)
+- ✅ Watchdog auto-restart loop
+- ✅ Area filter (Forest/Lake/Desert/etc)
+- ✅ Prioritas FirstAreaEgg
+- ✅ Stats session (stolen/failed) di UI
+- ✅ Modul asli game: `ReplicatedStorage.Client.EggState`, `Shared.Util.AreaEggSlotIdentity`, `Client.PlotState`
 
 ---
 

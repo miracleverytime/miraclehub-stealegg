@@ -392,6 +392,290 @@ local function HuntNPC()
 end
 
 -- ============================================================
+-- AUTO STEAL EGG v2 (tween ke egg -> ambil -> bawa ke base)
+-- ============================================================
+-- Engine yang sama persis dengan yang sudah diuji live (8 egg sukses).
+-- Memakai modul asli game (bukan Library.Client.EggCmds yang sering
+-- gagal resolve): ReplicatedStorage.Client.EggState,
+-- Shared.Util.AreaEggSlotIdentity, Client.PlotState.
+-- Kecepatan tween 130 studs/dtk LULUS anti-teleport server.
+
+local okEggState, EggState_m = (function()
+    -- JANGAN pakai loadModule: guard `if not Client` memblokir karena game ini
+    -- tidak punya folder ReplicatedStorage.Library. Module asli ada di
+    -- ReplicatedStorage.Client / ReplicatedStorage.Shared.
+    if not ReplicatedStorage then return false, nil end
+    return pcall(function() return require(ReplicatedStorage.Client.EggState) end)
+end)()
+local okSlotId, AreaEggSlotIdentity_m = (function()
+    if not ReplicatedStorage then return false, nil end
+    return pcall(function() return require(ReplicatedStorage.Shared.Util.AreaEggSlotIdentity) end)
+end)()
+local okPlot, PlotState_m = (function()
+    if not ReplicatedStorage then return false, nil end
+    return pcall(function() return require(ReplicatedStorage.Client.PlotState) end)
+end)()
+
+local stealActive = false
+local stealThread = nil
+
+-- Tween pelan easing in-out; return true bila sampai.
+local function stealTweenTo(pos, heightOffset)
+    local _, _, root = getCharacterAndRoot()
+    if not root then return false end
+    local target = pos + Vector3.new(0, heightOffset or 4, 0)
+    local startPos = root.CFrame
+    local dist = (target - startPos.Position).Magnitude
+    if dist < 3 then
+        root.CFrame = CFrame.lookAt(target, pos)
+        return true
+    end
+    local speed = math.max(ctx.States.stealTweenSpeed or 130, 20)
+    local dur = math.max(dist / speed, 0.25)
+    local t0 = os.clock()
+    while os.clock() - t0 < dur do
+        if not stealActive then return false end
+        _, _, root = getCharacterAndRoot()
+        if not root then return false end
+        local a = math.min((os.clock() - t0) / dur, 1)
+        local e = a < 0.5 and (2 * a * a) or (1 - ((-2 * a + 2) ^ 2) / 2)
+        root.CFrame = CFrame.lookAt(startPos.Position:Lerp(target, e), target)
+        task.wait()
+    end
+    root.CFrame = CFrame.lookAt(target, pos)
+    return true
+end
+
+-- Resolusi plot milik player (pet area = titik drop aman).
+local function stealGetPetArea()
+    if not okPlot or not PlotState_m then return nil end
+    local ok2, plot = pcall(PlotState_m.ResolvePlot, localPlayer)
+    if ok2 and type(plot) == "table" and plot.PetArea and plot.PetArea:IsA("BasePart") then
+        return plot.PetArea
+    end
+    return nil
+end
+
+-- Target "safe zone": sisi base di belakang garis pemisah (x < SeparationLine),
+-- tetap dekat gate supaya server langsung menghitung player sudah keluar dari
+-- gameplay area dan meng-claim egg. Menghindari menyentuh treadmill/PetArea.
+local function stealGetSafeZoneTarget()
+    local areas = workspace and workspace:FindFirstChild("__OBJECTS") and workspace.__OBJECTS:FindFirstChild("Areas")
+    local sep = areas and areas:FindFirstChild("SeparationLine")
+    if sep and sep:IsA("BasePart") then
+        -- belok 6 stud ke arah base dari garis, sejajar ketinggian normal
+        local back = sep.Position - sep.CFrame.LookVector * 6
+        return Vector3.new(back.X, back.Y + 2, back.Z)
+    end
+    -- fallback: ke arah plot (beberapa stud dari garis pemisah)
+    local _, _, root = getCharacterAndRoot()
+    if root then
+        return root.Position - Vector3.new(30, 0, 0)
+    end
+    return nil
+end
+
+-- Egg Slot terdekat (prioritas FirstAreaEgg bila dikonfigurasi).
+local function stealFindTarget(root)
+    if not okEggState or not EggState_m or not EggState_m.ReadFieldEggs then return nil end
+    local filter = ctx.States.stealAreaFilter or ""
+    local preferFirst = ctx.States.stealPreferFirst ~= false
+    local best, bestD = nil, math.huge
+    local bestFirst, bestFirstD = nil, math.huge
+    local ok, rows = pcall(function() return EggState_m.ReadFieldEggs() end)
+    if not ok or type(rows) ~= "table" then return nil end
+    for _, r in ipairs(rows.Records or {}) do
+        if r.State == "Slot" and r.BottomCFrame then
+            if filter == "" or r.AreaId == filter then
+                local d = (r.BottomCFrame.Position - root.Position).Magnitude
+                local isFirst = okSlotId and AreaEggSlotIdentity_m.LooksLikeFirstAreaUid(r.Uid)
+                if isFirst then
+                    if d < bestFirstD then bestFirstD, bestFirst = d, r end
+                elseif d < bestD then
+                    bestD, best = d, r
+                end
+            end
+        end
+    end
+    if preferFirst and bestFirst then return bestFirst end
+    return best
+end
+
+-- Apakah player sedang membawa egg (record State = Carried milik kita).
+local function stealIsCarrying()
+    if not okEggState or not EggState_m then return false end
+    local ok, rows = pcall(function() return EggState_m.ReadFieldEggs() end)
+    if not ok or type(rows) ~= "table" then return false end
+    for _, r in ipairs(rows.Records or {}) do
+        if r.State == "Carried" and r.CarrierUserId == localPlayerId then
+            return true
+        end
+    end
+    return false
+end
+
+-- Invoke carry dengan watchdog (anti-hang saat koneksi drop).
+local function stealSafeCarry(rec)
+    if not okEggState or not EggState_m or not EggState_m.CarryFieldEgg then return false, "no_module" end
+    local slotKey = nil
+    if okSlotId and AreaEggSlotIdentity_m and AreaEggSlotIdentity_m.LooksLikeFirstAreaUid(rec.Uid) then
+        local okK, key = pcall(AreaEggSlotIdentity_m.SlotKey, rec.AreaId, rec.NestId)
+        if okK then slotKey = key end
+    end
+    pcall(function() localPlayer:SetAttribute("AreaId", rec.AreaId) end)
+    task.wait(0.2)
+    local result, done = nil, false
+    local th = task.spawn(function()
+        local success, okBool, errMsg = pcall(EggState_m.CarryFieldEgg, rec.Uid, slotKey)
+        if not success then
+            result = { ok = false, err = tostring(okBool) }
+        else
+            result = { ok = okBool == true, err = okBool == true and nil or tostring(errMsg) }
+        end
+        done = true
+    end)
+    local t0 = os.clock()
+    while not done and os.clock() - t0 < 10 do task.wait(0.05) end
+    if not done then
+        pcall(task.cancel, th)
+        return false, "TIMEOUT"
+    end
+    if not result.ok then return false, result.err end
+    return true, nil
+end
+
+local function stealUnequip()
+    local _, hum = getCharacterAndRoot()
+    if hum then pcall(hum.UnequipTools) end
+end
+
+-- Sisi "base" adalah x < SeparationLine; area gameplay x > line.
+-- Server baru mencatat player "masuk gameplay area" saat karakter MENYEBERANG
+-- fisik lewat gate (GameplayZ), bukan saat teleport. Bila carry ditolak
+-- "Enter the gameplay area first", arahkan karakter menyusuri titik gate
+-- dari sisi base lalu maju melintas (MoveTo = physics asli, Touched terpicu).
+local function stealEnterGameplayArea()
+    local _, _, root = getCharacterAndRoot()
+    local hum = nil
+    if localPlayer and localPlayer.Character then
+        hum = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+    end
+    if not root or not hum then return false end
+    local areas = workspace and workspace:FindFirstChild("__OBJECTS") and workspace.__OBJECTS:FindFirstChild("Areas")
+    local sep = areas and areas:FindFirstChild("SeparationLine")
+    if not sep or not sep:IsA("BasePart") then return false end
+    local gate = sep.Position + Vector3.new(0, 2, 0) + sep.CFrame.LookVector * 2
+    local gateBack = sep.Position + Vector3.new(0, 2, 0) - sep.CFrame.LookVector * 6
+    hum.WalkSpeed = 45
+    -- 1) berdiri di sisi base dulu (dekat gate, sebelum garis)
+    local _, _, r2 = getCharacterAndRoot()
+    if r2 and (r2.Position - gateBack).Magnitude > 3 then
+        r2.CFrame = CFrame.lookAt(gateBack, gate)
+        task.wait(0.3)
+    end
+    -- 2) jalan melewati gate ke sisi gameplay
+    hum:MoveTo(gate)
+    local t0 = os.clock()
+    while os.clock() - t0 < 8 do
+        task.wait(0.05)
+        local _, _, r3 = getCharacterAndRoot()
+        if not r3 then break end
+        if (r3.Position - gate).Magnitude < 3 then break end
+    end
+    hum:MoveTo(gate + sep.CFrame.LookVector * 5)
+    task.wait(0.8)
+    return true
+end
+
+local function StartStealLoop()
+    if stealActive then return end
+    if not okEggState or not EggState_m then
+        warn("[StealAnEgg] EggState missing - auto steal disabled")
+        return
+    end
+    stealActive = true
+    stealThread = task.spawn(function()
+        notify("Auto Steal", "Engine started (tween -> carry -> safe zone)", Color3.fromRGB(77, 214, 201), 2)
+        while stealActive and _G._MiracleHubSession == session do
+            local ok2, res = pcall(function()
+                local _, _, root = getCharacterAndRoot()
+                if not root then return "no_character" end
+                if stealIsCarrying() then
+                    -- Tween ke SAFE ZONE (belakang garis pemisah), bukan ke PetArea.
+                    -- Server meng-claim egg otomatis saat pembawa masuk safe zone.
+                    local sz = stealGetSafeZoneTarget()
+                    if not sz then return "no_safe_zone" end
+                    stealUnequip()
+                    stealTweenTo(sz, 2)
+                    -- tunggu claim server (record Carried hilang)
+                    local t0 = os.clock()
+                    while stealActive and os.clock() - t0 < 25 do
+                        if not stealIsCarrying() then break end
+                        task.wait()
+                    end
+                    if not stealIsCarrying() then
+                        ctx.RuntimeData.stealStolen = (ctx.RuntimeData.stealStolen or 0) + 1
+                        notify("Auto Steal", "Egg delivered (safe zone)! Total: " .. tostring(ctx.RuntimeData.stealStolen), Color3.fromRGB(77, 214, 201), 2)
+                    else
+                        if okEggState and EggState_m and EggState_m.DropFieldEgg then
+                            pcall(function() EggState_m.DropFieldEgg(nil) end)
+                        end
+                    end
+                    stealUnequip()
+                    task.wait(1)
+                else
+                    local target = stealFindTarget(root)
+                    if not target then
+                        task.wait(2)
+                    else
+                        if stealTweenTo(target.BottomCFrame.Position, 4) then
+                            local okC, errC = stealSafeCarry(target)
+                            if okC then
+                                notify("Auto Steal", "Egg taken: " .. tostring(target.AssetCategory or target.Uid), Color3.fromRGB(251, 191, 36), 1.5)
+                            else
+                                -- Bila server belum mencatat "masuk gameplay area",
+                                -- lintasi gate fisik lalu coba sekali lagi.
+                                if errC and tostring(errC):find("gameplay area") then
+                                    stealEnterGameplayArea()
+                                    local okC2, errC2 = stealSafeCarry(target)
+                                    if okC2 then
+                                        notify("Auto Steal", "Egg taken: " .. tostring(target.AssetCategory or target.Uid), Color3.fromRGB(251, 191, 36), 1.5)
+                                    else
+                                        ctx.RuntimeData.stealFailed = (ctx.RuntimeData.stealFailed or 0) + 1
+                                        task.wait(1)
+                                    end
+                                else
+                                    ctx.RuntimeData.stealFailed = (ctx.RuntimeData.stealFailed or 0) + 1
+                                    if errC ~= "no_carryable" then task.wait(1) end
+                                end
+                            end
+                        end
+                    end
+                end
+                return "ok"
+            end)
+            if type(res) == "string" then
+                if res == "no_character" then task.wait(1) end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+local function StopStealLoop()
+    stealActive = false
+    if stealThread then
+        task.cancel(stealThread)
+        stealThread = nil
+    end
+end
+
+function ctx.SetAutoSteal(state)
+    ctx.States.autoSteal = state and true or false
+    if state then StartStealLoop() else StopStealLoop() end
+end
+
+-- ============================================================
 -- SMOOTH TRAVEL (gentle walk toward target)
 -- ============================================================
 -- We avoid rewriting WalkSpeed every frame (that triggers anti-cheat
@@ -726,12 +1010,14 @@ local CleanupRoutine = function()
     StopFarmLoop()
     StopHuntLoop()
     StopCollectLoop()
+    StopStealLoop()
     StopAntiAfk()
     StopTravel()
     ctx.States.enabled    = false
     ctx.States.autoFarm   = false
     ctx.States.autoHunt   = false
     ctx.States.autoCollect = false
+    ctx.States.autoSteal  = false
     ctx.States.smoothTravel = false
     ctx.States.antiAFK = false
 end
