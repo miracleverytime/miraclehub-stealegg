@@ -163,6 +163,33 @@ return function(ctx)
     _G._MiracleHubSession = (_G._MiracleHubSession or 0) + 1
     ctx.SESSION           = _G._MiracleHubSession
 
+    -- ── SESSION GUARD: hapus GUI inject sebelumnya saat re-inject ─────
+    -- Mencegah menu ganda (duplicate) karena ScreenGui lama tidak di-destroy
+    -- oleh framework. Nama GUI = "MiracleHub" (lihat ui.lua/ui.mobile.lua).
+    -- Juga reset GameCleanup lama agar tidak menumpuk double-loop.
+    pcall(function()
+        local old = playerGui:FindFirstChild("MiracleHub")
+        if old then old:Destroy() end
+        local oldAlt = playerGui:FindFirstChild("MiracleHubSteaLEgg")
+        if oldAlt then oldAlt:Destroy() end
+        -- Framework shared menandai ScreenGui-nya dengan attribute "BuildTag"
+        -- (ui.mobile.lua / ui.lua). Hancurkan semua ScreenGui hub lama agar
+        -- re-inject tidak menyisakan menu ganda.
+        for _, sg in ipairs(playerGui:GetChildren()) do
+            if sg:IsA("ScreenGui") and sg:GetAttribute("BuildTag") then
+                sg:Destroy()
+            end
+        end
+    end)
+    pcall(function()
+        if _G.GameCleanup then
+            for _, cleanup in ipairs(_G.GameCleanup) do
+                pcall(cleanup)
+            end
+        end
+        _G.GameCleanup = {}
+    end)
+
     -- ── Global mirror (read by logic.lua) ─────────────────────────────
     _G._MiracleHubSteaLEgg = ctx
 

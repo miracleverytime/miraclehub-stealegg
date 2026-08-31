@@ -36,6 +36,8 @@
 - **Watchdog** - Loop auto-restart jika mati
 - **Area Filter** - Batasi ke area tertentu (Forest, Lake, dll)
 - **Prioritas FirstAreaEgg** - Utamakan egg dekat base
+- **Recovery Jatuh** - Jika kena penjaga & egg jatuh (`Dropped`), langsung ambil ulang sebelum cari egg lain (tidak dianggap sukses)
+- **Anti-Clipping** - Jarak jauh pakai `Humanoid:MoveTo` (physics asli, tidak tembus tembok/tanah); deteksi macet + recovery hop
 
 #### 🥚 Egg Tracker
 - **Dynamic Detection** - Real-time egg location scanning

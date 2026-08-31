@@ -207,10 +207,10 @@ ctx.registerPage("Auto Farm", function()
     CreateStatRow(content, "Failed (session)", tostring(ctx.RuntimeData.stealFailed or 0), Colors.Warning)
 
     CreateInfoText(content, "ℹ Auto Steal Egg",
-        "**Tween 130 studs/dtk** (default) - kecepatan yang lolos anti-teleport server.\n" ..
-        "**Alur:** cari egg Slot terdekat -> tween -> CarryFieldEgg -> tween ke **safe zone** (belakang garis pemisah) -> server auto-claim.\n" ..
-        "**Tidak perlu masuk base/treadmill** - cukup sampai di belakang garis pemisah untuk claim.\n" ..
-        "**Area filter kosong** = semua area. Jangan set speed terlalu tinggi (>160) agar server menerima gerakan.",
+        "**MoveTo (physics asli)** - berjalan via jalur Roblox, TIDAK menembus tembok (anti mati mendadak).\n" ..
+        "**Alur:** cari egg terdekat -> jalan (MoveTo) -> CarryFieldEgg -> bawa ke **safe zone** (belakang garis pemisah) -> server auto-claim.\n" ..
+        "**Anti-drop:** jika egg jatuh kena penjaga saat dibawa, langsung diambil ulang (tanpa ke base dulu).\n" ..
+        "**Area filter kosong** = semua area. Jangan set speed terlalu tinggi (>130) agar server menerima gerakan.",
         Colors.Info
     )
 
