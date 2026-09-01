@@ -512,14 +512,14 @@ local function stealGetDroppedUid(carriedUid)
     if not okEggState or not EggState_m then return nil end
     local ok, rows = pcall(function() return EggState_m.ReadFieldEggs() end)
     if not ok or type(rows) ~= "table" then return nil end
+    local _, _, root = getCharacterAndRoot()
     for _, r in ipairs(rows.Records or {}) do
         if r.State == "Dropped" and r.BottomCFrame then
             if carriedUid and r.Uid == carriedUid then
                 return r.Uid
             end
             -- egg Dropped lain yang posisinya di dekat kita (baru jatuh)
-            local _, _, root = getCharacterAndRoot()
-            if root and (r.BottomCFrame.Position - root.Position).Magnitude < 20 then
+            if root and (r.BottomCFrame.Position - root.Position).Magnitude < 25 then
                 return r.Uid
             end
         end
@@ -621,23 +621,29 @@ local function StartStealLoop()
                     local sz = stealGetSafeZoneTarget()
                     if not sz then return "no_safe_zone" end
                     stealUnequip()
-                    -- onStep: batalkan TWEEN SEGERA bila egg jatuh (kena penjaga)
-                    -- di tengah jalan -> langsung ambil ulang, jangan ke base dulu.
+                    -- onStep: batalkan MoveTo SEGERA bila egg tidak lagi dibawa (jatuh/kena penjaga)
                     local droppedEarly = false
                     stealTweenTo(sz, 2, {
                         onStep = function()
+                            -- 1. Cek langsung apakah status carried lepas
+                            if not stealIsCarrying() then
+                                droppedEarly = true
+                                return true -- cancel move
+                            end
+                            -- 2. Cek apakah ada record dropped
                             if stealGetDroppedUid(carriedUid) then
                                 droppedEarly = true
-                                return true -- cancel tween
+                                return true -- cancel move
                             end
                             return false
                         end,
                     })
-                    if droppedEarly then
-                        stealRetargetUid = carriedUid
-                        notify("Auto Steal", "Egg jatuh saat dibawa - ambil ulang!", Color3.fromRGB(251, 191, 36), 2)
+                    if droppedEarly or not stealIsCarrying() then
+                        local droppedUid = stealGetDroppedUid(carriedUid) or carriedUid
+                        stealRetargetUid = droppedUid
+                        notify("Auto Steal", "Egg terlepas/jatuh! Putar balik ambil ulang...", Color3.fromRGB(251, 191, 36), 2)
                         stealUnequip()
-                        task.wait(1)
+                        task.wait(0.3)
                     else
                         -- tunggu claim server (record Carried hilang)
                         local t0 = os.clock()
@@ -648,8 +654,6 @@ local function StartStealLoop()
                         if not stealIsCarrying() then
                             -- Cek apakah egg TADI di-drop (kena penjaga) bukan di-claim.
                             -- Dropped: harus diambil ulang DULU, jangan dianggap sukses.
-                            -- Egg hilang dari records = masih di-proses server / jatuh;
-                            -- jangan langsung dihitung sukses (tunggu siklus berikutnya).
                             local dropped = false
                             local stillExists = false
                             if carriedUid and okEggState and EggState_m then
@@ -666,9 +670,9 @@ local function StartStealLoop()
                                     end
                                 end
                             end
-                            if dropped or not stillExists then
+                            if dropped then
                                 stealRetargetUid = carriedUid
-                                notify("Auto Steal", "Egg jatuh (kena penjaga) - ambil ulang!", Color3.fromRGB(251, 191, 36), 2)
+                                notify("Auto Steal", "Egg jatuh di dekat garis! Mengambil ulang...", Color3.fromRGB(251, 191, 36), 2)
                             else
                                 ctx.RuntimeData.stealStolen = (ctx.RuntimeData.stealStolen or 0) + 1
                                 notify("Auto Steal", "Egg delivered (safe zone)! Total: " .. tostring(ctx.RuntimeData.stealStolen), Color3.fromRGB(77, 214, 201), 2)
