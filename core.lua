@@ -88,9 +88,6 @@ return function(ctx)
     -- ── Mutable game-state flags (logic.lua flips these) ──────────────
     ctx.States = {
         enabled                 = false,
-        autoFarm                = false,
-        autoHunt                = false,
-        autoCollect             = false,
         autoSteal               = false,
         stealPreferFirst        = true,
         stealTweenSpeed         = 300,

@@ -103,10 +103,7 @@ ctx.registerPage("Home", function()
 
     -- Session Info
     CreateStatRow(content, "Session", "Running", Colors.Success)
-    CreateStatRow(content, "Auto-Farm",  ctx.States.autoFarm  and "ON ✅" or "OFF ❌", ctx.States.autoFarm  and Colors.Success or Colors.TextMuted)
-    CreateStatRow(content, "Auto-Hunt",  ctx.States.autoHunt  and "ON ✅" or "OFF ❌", ctx.States.autoHunt  and Colors.Success or Colors.TextMuted)
-    CreateStatRow(content, "Auto-Collect", ctx.States.autoCollect and "ON ✅" or "OFF ❌", ctx.States.autoCollect and Colors.Success or Colors.TextMuted)
-    CreateStatRow(content, "Auto Steal", ctx.States.autoSteal and "ON ✅" or "OFF ❌", ctx.States.autoSteal and Colors.Success or Colors.TextMuted)
+    CreateStatRow(content, "Auto Steal Egg", ctx.States.autoSteal and "ON ✅" or "OFF ❌", ctx.States.autoSteal and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Smooth Travel", ctx.States.smoothTravel and "ON ✅" or "OFF ❌", ctx.States.smoothTravel and Colors.Success or Colors.TextMuted)
     CreateStatRow(content, "Stealth Mode", ctx.States.stealthMode and "ACTIVE 🔒" or "INACTIVE ⚠️", ctx.States.stealthMode and Colors.Success or Colors.Warning)
 end)
@@ -116,63 +113,12 @@ end)
 -- ============================================================
 
 ctx.registerPage("Auto Farm", function()
-    local card, content = CreateSectionCard("⛏️ Auto Farm Settings", 1, Colors.Success)
-    CreateSubHeader(content, "Automation Controls")
+    local card, content = CreateSectionCard("⛏️ Auto Farm & Steal", 1, Colors.Success)
+    CreateSubHeader(content, "Auto Steal Egg Controls")
 
-    -- Main global enable
-    CreateToggle(content, "ENABLE Auto Farm", "enabled",
-        "Activate all farming systems (auto-farm + auto-collect + auto-hunt)", function(state)
-            ctx.States.enabled = state and true or false
-            print("[StealAnEgg] Global enabled:", state)
-            task.wait(0.2)
-            if state and ctx.WaitForTrustBuild then
-                ctx.WaitForTrustBuild()
-            end
-            if state then
-                if ctx.SetAutoFarm then ctx.SetAutoFarm(true) end
-                if ctx.SetAutoHunt then ctx.SetAutoHunt(true) end
-                if ctx.SetAutoCollect then ctx.SetAutoCollect(true) end
-                if ctx.SetAutoSteal then ctx.SetAutoSteal(true) end
-            else
-                if ctx.SetAutoFarm then ctx.SetAutoFarm(false) end
-                if ctx.SetAutoHunt then ctx.SetAutoHunt(false) end
-                if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
-                if ctx.SetAutoSteal then ctx.SetAutoSteal(false) end
-            end
-        end
-    )
-
-    CreateSubHeader(content, "Farm Actions")
-
-    -- Auto collect eggs (carries dropped area eggs)
-    CreateToggle(content, "Auto Collect Eggs", "autoCollect",
-        "Carries the closest dropped area egg via RequestCarryAreaEgg", function(state)
-            if ctx.SetAutoCollect then
-                ctx.SetAutoCollect(state)
-            else
-                ctx.States.autoCollect = state and true or false
-            end
-            print("[StealAnEgg] Auto collect:", state)
-        end
-    )
-
-    -- Auto hunt pets (DNA-steal from other pens)
-    CreateToggle(content, "Auto Hunt Pets", "autoHunt",
-        "DNA-steal via REQUEST_STEAL_TARGET (idle jika fitur dimatikan dev)", function(state)
-            if ctx.SetAutoHunt then
-                ctx.SetAutoHunt(state)
-            else
-                ctx.States.autoHunt = state and true or false
-            end
-            print("[StealAnEgg] Auto hunt:", state)
-        end
-    )
-
-    CreateSubHeader(content, "Auto Steal Egg (Tween)")
-
-    -- Auto steal egg: tween ke egg -> ambil -> bawa ke base
-    CreateToggle(content, "🥚 Auto Steal Egg", "autoSteal",
-        "Tween ke egg terdekat, ambil via CarryFieldEgg, lalu bawa ke base & claim", function(state)
+    -- Main Steal enable
+    CreateToggle(content, "🥚 Auto Steal Egg (Loop)", "autoSteal",
+        "Tween otomatis ke egg -> ambil (CarryFieldEgg) -> bawa ke base & claim", function(state)
             if ctx.SetAutoSteal then
                 ctx.SetAutoSteal(state)
             else
@@ -266,30 +212,6 @@ ctx.registerPage("Auto Farm", function()
 
     CreateSubHeader(content, "Actions")
 
-    -- Manual collection button
-    CreateActionButton(content, "🥚 Steal Closest Egg (Manual)", function()
-        if ctx.CollectEgg then
-            local ok, info = ctx.CollectEgg()
-            if ok then
-                print("[StealAnEgg] ✓ Manual egg collection triggered (dist " .. tostring(info) .. ")")
-            else
-                warn("[StealAnEgg] Manual collection failed:", tostring(info))
-            end
-        end
-    end, Colors.Success)
-
-    -- Manual hunt button
-    CreateActionButton(content, "⚔️ Steal DNA (Manual)", function()
-        if ctx.HuntNPC then
-            local ok, info = ctx.HuntNPC()
-            if ok then
-                print("[StealAnEgg] ✓ Manual DNA steal triggered")
-            else
-                warn("[StealAnEgg] Manual hunt failed:", tostring(info))
-            end
-        end
-    end, Colors.Danger)
-
     -- Hatch all ready eggs
     CreateActionButton(content, "🐣 Hatch Ready Eggs", function()
         if ctx.HatchReadyEggs then
@@ -325,18 +247,16 @@ ctx.registerPage("Auto Farm", function()
     end, Colors.Info)
 
     -- Reset button
-    CreateActionButton(content, "🔄 Reset & Rebuild Trust", function()
+    CreateActionButton(content, "🔄 Reset Automation", function()
         ctx.States.enabled    = false
-        ctx.States.autoFarm   = false
-        ctx.States.autoHunt   = false
-        ctx.States.autoCollect= false
+        ctx.States.autoSteal  = false
         ctx.States.smoothTravel = false
         ctx.States.antiAFK    = false
-        if not ctx.States.stealthMode then
-            ctx.States.stealthMode = true
-        end
-        if ctx.SetAutoFarm then ctx.SetAutoFarm(false) end
-        if ctx.SetAutoHunt then ctx.SetAutoHunt(false) end
+        if ctx.SetAutoSteal then ctx.SetAutoSteal(false) end
+        if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
+        if ctx.EnableAntiAFK then ctx.EnableAntiAFK(false) end
+        print("[StealAnEgg] State reset")
+    end, Colors.Danger)
         if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
         if ctx.SetAutoSteal then ctx.SetAutoSteal(false) end
         if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
@@ -518,15 +438,9 @@ ctx.registerPage("Settings", function()
     -- Emergency disable
     CreateActionButton(content, "🚨 EMERGENCY DISABLE", function()
         ctx.States.enabled    = false
-        ctx.States.autoFarm   = false
-        ctx.States.autoHunt   = false
-        ctx.States.autoCollect= false
         ctx.States.autoSteal  = false
         ctx.States.smoothTravel = false
         ctx.States.antiAFK    = false
-        if ctx.SetAutoFarm    then ctx.SetAutoFarm(false)    end
-        if ctx.SetAutoHunt    then ctx.SetAutoHunt(false)    end
-        if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
         if ctx.SetAutoSteal   then ctx.SetAutoSteal(false)   end
         if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
         if ctx.EnableAntiAFK  then ctx.EnableAntiAFK(false)  end

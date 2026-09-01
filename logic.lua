@@ -267,147 +267,12 @@ end
 -- SMOOTH TRAVEL section; these let CollectEgg reference them as upvalues).
 local StartTravelTo, StopTravel
 
--- The real game builds this slot key for FirstAreaEgg records and passes it
--- to RequestCarryAreaEgg (see AreaEggSlotIdentity.BuildSlotKey).
-local function buildSlotKey(rec)
-    if not rec or string.match(rec.Uid or "", "^FirstAreaEgg_") == nil then
-        return nil
-    end
-    return tostring(rec.AreaId) .. ":" .. tostring(rec.NestId)
-end
-
-local function CollectEgg()
-    return protectMulti(function()
-        if not okEgg or not EggCmds_m or not EggCmds_m.RequestCarryAreaEgg then
-            return false, "EggCmds unavailable"
-        end
-        if not okGuard or not ToolGameplayGuard_m or not ToolGameplayGuard_m.CanActivateLocal() then
-            return false, "blocked_by_safezone"
-        end
-
-        local record, dist = nearestCarryableEgg()
-        if not record then
-            return false, "no_carryable_egg"
-        end
-
-        -- The server validates distance, so walk to the egg before requesting.
-        local _, _, root = getCharacterAndRoot()
-        if root and record.BoundsCFrame then
-            local carryPos = record.BoundsCFrame.Position
-            if (carryPos - root.Position).Magnitude > 8 then
-                StartTravelTo(CFrame.new(carryPos))
-                return false, "approaching_egg"
-            end
-            StopTravel()
-        end
-
-        local okCarry, errCarry = EggCmds_m.RequestCarryAreaEgg(record.Uid, buildSlotKey(record))
-        if okCarry == true then
-            ctx.RuntimeData.lastStealUid = record.Uid
-            return true, dist
-        end
-        return false, errCarry or "request_failed"
-    end)
-end
-
--- ============================================================
--- PET EQUIP / STEAL DNA PIPELINE
--- ============================================================
--- "Auto Hunt" in this game means cycling through OTHER players' pen
--- pets and using the DNA-steal prompt to grab their DNA. The
--- authoritative remote is NetworkMap.ActiveAssets.REQUEST_STEAL_TARGET.
--- We use it to repeatedly request a steal target while the player is
--- near another player's plot.
-
-local function findOtherPlayerPets()
-    local records = {}
-    if not okAsset or not AssetCmds_m or not AssetCmds_m.GetOwnerRuntimeRecords then
-        return records
-    end
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= localPlayer then
-            local ok, ownerRecs = pcall(AssetCmds_m.GetOwnerRuntimeRecords, p.UserId)
-            if ok and type(ownerRecs) == "table" then
-                for _, rec in pairs(ownerRecs) do
-                    table.insert(records, rec)
-                end
-            end
-        end
-    end
-    return records
-end
-
-local function HuntNPC()
-    return protectMulti(function()
-        if not okNet or not Network_m or not Network_m.Invoke then
-            return false, "Network unavailable"
-        end
-        if not okGuard or not ToolGameplayGuard_m or not ToolGameplayGuard_m.CanActivateLocal() then
-            return false, "blocked_by_safezone"
-        end
-        if Constants_m and Constants_m.ASSET_DNA_STEAL_ENABLED == false then
-            return false, "dna_steal_disabled_by_game"
-        end
-        local AA = NETWORK.ActiveAssets
-        if not AA or not AA.REQUEST_STEAL_TARGET then
-            return false, "endpoint_missing"
-        end
-
-        -- Pick the closest visible pet owned by another player.
-        local _, _, root = getCharacterAndRoot()
-        if not root then return false, "no_character" end
-
-        local pets = findOtherPlayerPets()
-        local best = nil
-        for _, rec in ipairs(pets) do
-            if rec.UID and rec.OwnerUserId then
-                -- Runtime asset records do not carry a position; rely on the
-                -- server-side distance validation. Prefer any record.
-                best = rec
-                break
-            end
-        end
-        if not best then return false, "no_pets_visible" end
-
-        -- Resolve steal product id via the game's own resolver when present.
-        local productId = nil
-        if okResolver and AssetDnaProductResolver_m then
-            local okRes, res = pcall(AssetDnaProductResolver_m.GetProductId, best.ItemData)
-            if okRes and type(res) == "number" then productId = res end
-        end
-
-        -- Network_m.Invoke returns the server payload directly:
-        --   success(bool), errMsg(string|nil)  [see AssetInteractionPrompt]
-        local success, errMsg
-        if productId then
-            success, errMsg = Network_m.Invoke(AA.REQUEST_STEAL_TARGET, {
-                ProductId   = productId,
-                OwnerUserId = best.OwnerUserId,
-                UID         = best.UID,
-            })
-        else
-            success, errMsg = Network_m.Invoke(AA.REQUEST_STEAL_TARGET, {
-                OwnerUserId = best.OwnerUserId,
-                UID         = best.UID,
-            })
-        end
-
-        if success == true then
-            ctx.RuntimeData.lastHuntUid = best.UID
-            return true
-        end
-        return false, errMsg or "steal_target_rejected"
-    end)
-end
-
 -- ============================================================
 -- AUTO STEAL EGG v2 (tween ke egg -> ambil -> bawa ke base)
 -- ============================================================
 -- Engine yang sama persis dengan yang sudah diuji live (8 egg sukses).
--- Memakai modul asli game (bukan Library.Client.EggCmds yang sering
--- gagal resolve): ReplicatedStorage.Client.EggState,
+-- Memakai modul asli game: ReplicatedStorage.Client.EggState,
 -- Shared.Util.AreaEggSlotIdentity, Client.PlotState.
--- Kecepatan tween 130 studs/dtk LULUS anti-teleport server.
 
 local okEggState, EggState_m = (function()
     -- JANGAN pakai loadModule: guard `if not Client` memblokir karena game ini
@@ -972,118 +837,13 @@ local function EnableAntiAFK(enabled)
 end
 
 -- ============================================================
--- FARM LOOP (carries the closest area egg, then waits for server
--- to auto-deposit / repeat)
+-- AUTO FARM (alias for Auto Steal)
 -- ============================================================
 
-local farmThread = nil
-local farmActive = false
-
-local function StartFarmLoop()
-    if farmActive then return end
-    if not okEgg or not EggCmds_m then
-        warn("[StealAnEgg] EggCmds missing - farm disabled")
-        return
-    end
-    -- Safe-zone state is handled inside the loop (pause/resume), so we
-    -- intentionally do NOT block startup when standing in spawn.
-    farmActive = true
-    farmThread = task.spawn(function()
-        while farmActive and _G._MiracleHubSession == session do
-            local ok, result = CollectEgg()
-            if not ok then
-                if result == "blocked_by_safezone" then
-                    notify("Farm paused: in safe zone", Color3.fromRGB(255, 200, 0), 1.5)
-                    task.wait(3)
-                elseif result == "approaching_egg" then
-                    task.wait(0.05) -- keep walking toward the egg
-                elseif result == "no_carryable_egg" then
-                    task.wait(2) -- nothing to steal, just wait
-                else
-                    task.wait(1.5)
-                end
-            else
-                task.wait(0.7)
-            end
-        end
-    end)
-end
-
-local function StopFarmLoop()
-    farmActive = false
-    if farmThread then
-        task.cancel(farmThread)
-        farmThread = nil
-    end
-end
-
--- ============================================================
--- HUNT LOOP (issues DNA-steal requests against visible pen pets)
--- ============================================================
-
-local huntThread = nil
-local huntActive = false
-
-local function StartHuntLoop()
-    if huntActive then return end
-    if not okNet or not Network_m then
-        warn("[StealAnEgg] Network missing - hunt disabled")
-        return
-    end
-    huntActive = true
-    huntThread = task.spawn(function()
-        while huntActive and _G._MiracleHubSession == session do
-            local ok, result = HuntNPC()
-            if not ok then
-                if result == "blocked_by_safezone" then
-                    task.wait(3)
-                else
-                    task.wait(2)
-                end
-            else
-                task.wait(0.5)
-            end
-        end
-    end)
-end
-
-local function StopHuntLoop()
-    huntActive = false
-    if huntThread then
-        task.cancel(huntThread)
-        huntThread = nil
-    end
-end
-
--- ============================================================
--- COLLECT LOOP (auto-equip best pet / open area eggs)
--- ============================================================
-
-local collectThread = nil
-local collectActive = false
-
-local function StartCollectLoop()
-    if collectActive then return end
-    if not okAsset or not AssetCmds_m then return end
-    collectActive = true
-    collectThread = task.spawn(function()
-        while collectActive and _G._MiracleHubSession == session do
-            -- Try carrying the closest stealable area egg.
-            local okCarry, res = CollectEgg()
-            if not okCarry then
-                if res == "approaching_egg" then task.wait(0.05) else task.wait(2) end
-            else
-                task.wait(0.6)
-            end
-        end
-    end)
-end
-
-local function StopCollectLoop()
-    collectActive = false
-    if collectThread then
-        task.cancel(collectThread)
-        collectThread = nil
+function ctx.SetAutoFarm(state)
+    ctx.States.autoFarm = state and true or false
+    if ctx.SetAutoSteal then
+        ctx.SetAutoSteal(state)
     end
 end
 
@@ -1093,39 +853,19 @@ end
 -- These hook the EggCmds module so the UI buttons can fire real
 -- network calls rather than just printing.
 
-local function PlaceHeldEgg(cframe)
-    if not okEgg or not EggCmds_m or not EggCmds_m.RequestPlaceEgg then return false, "no_module" end
-    local myRecords = {}
-    if EggCmds_m.GetOwnerRuntimeRecords then
-        local ok, recs = pcall(EggCmds_m.GetOwnerRuntimeRecords, localPlayerId)
-        if ok and type(recs) == "table" then myRecords = recs end
-    end
-    -- Pick the first egg without a placement; default to a spot near the
-    -- player (world origin would be rejected by server bounds checks).
-    local _, _, root = getCharacterAndRoot()
-    local baseCF = (root and CFrame.new(root.Position + Vector3.new(0, 6, 0))) or CFrame.new(0, 10, 0)
-    for uid, rec in pairs(myRecords) do
-        if not rec.Placement then
-            local ok, err = EggCmds_m.RequestPlaceEgg(uid, cframe or baseCF)
-            return ok == true, err
-        end
-    end
-    return false, "no_unplaced_egg"
-end
-
 local function HatchReadyEggs()
-    if not okEgg or not EggCmds_m then return 0 end
+    if not okEggState or not EggState_m then return 0 end
     local myRecords = {}
-    if EggCmds_m.GetOwnerRuntimeRecords then
-        local ok, recs = pcall(EggCmds_m.GetOwnerRuntimeRecords, localPlayerId)
+    if EggState_m.ReadOwnedEggs then
+        local ok, recs = pcall(EggState_m.ReadOwnedEggs)
         if ok and type(recs) == "table" then myRecords = recs end
     end
     local hatched = 0
     for uid, rec in pairs(myRecords) do
-        if rec.Placement and EggCmds_m.IsLocalEggReady and EggCmds_m.IsLocalEggReady(uid) then
-            local ok, _ = EggCmds_m.RequestHatchEgg(uid)
-            if ok == true then
-                hatched = hatched + 1
+        if EggState_m.IsReadyToHatch and EggState_m.IsReadyToHatch(uid) then
+            if EggState_m.BeginHatch then
+                local ok, _ = pcall(EggState_m.BeginHatch, uid)
+                if ok then hatched = hatched + 1 end
             end
         end
     end
@@ -1133,27 +873,32 @@ local function HatchReadyEggs()
 end
 
 local function SkipGrowthForAll()
-    if not okEgg or not EggCmds_m or not EggCmds_m.RequestSkipGrowth then return 0 end
+    if not okEggState or not EggState_m or not EggState_m.BeginSkipGrowth then return 0 end
     local myRecords = {}
-    if EggCmds_m.GetOwnerRuntimeRecords then
-        local ok, recs = pcall(EggCmds_m.GetOwnerRuntimeRecords, localPlayerId)
+    if EggState_m.ReadOwnedEggs then
+        local ok, recs = pcall(EggState_m.ReadOwnedEggs)
         if ok and type(recs) == "table" then myRecords = recs end
     end
     local skipped = 0
     for uid, rec in pairs(myRecords) do
-        if rec.Placement and not (EggCmds_m.IsLocalEggReady and EggCmds_m.IsLocalEggReady(uid)) then
-            local ok, _ = EggCmds_m.RequestSkipGrowth(uid)
-            if ok == true then skipped = skipped + 1 end
-        end
+        local ok, _ = pcall(EggState_m.BeginSkipGrowth, uid)
+        if ok then skipped = skipped + 1 end
     end
     return skipped
 end
 
 local function UpgradeBase()
-    if not okBase or not BaseUpgradeClient or not BaseUpgradeClient.RequestCashUpgrade then
-        return false, "BaseUpgradeClient unavailable"
+    local okClient, BaseUpgrade_m = pcall(function()
+        return require(ReplicatedStorage.Client.BaseUpgrade)
+    end)
+    if okClient and BaseUpgrade_m and BaseUpgrade_m.PurchaseNextTier then
+        local ok, res = pcall(BaseUpgrade_m.PurchaseNextTier)
+        return ok and res == true
     end
-    return BaseUpgradeClient.RequestCashUpgrade() == true
+    if okBase and BaseUpgradeClient and BaseUpgradeClient.RequestCashUpgrade then
+        return BaseUpgradeClient.RequestCashUpgrade() == true
+    end
+    return false, "BaseUpgrade unavailable"
 end
 
 -- ============================================================
@@ -1162,17 +907,9 @@ end
 
 function ctx.SetAutoFarm(state)
     ctx.States.autoFarm = state and true or false
-    if state then StartFarmLoop() else StopFarmLoop() end
-end
-
-function ctx.SetAutoHunt(state)
-    ctx.States.autoHunt = state and true or false
-    if state then StartHuntLoop() else StopHuntLoop() end
-end
-
-function ctx.SetAutoCollect(state)
-    ctx.States.autoCollect = state and true or false
-    if state then StartCollectLoop() else StopCollectLoop() end
+    if ctx.SetAutoSteal then
+        ctx.SetAutoSteal(state)
+    end
 end
 
 function ctx.SetStealth(state)
@@ -1200,16 +937,10 @@ end
 -- ============================================================
 
 local CleanupRoutine = function()
-    StopFarmLoop()
-    StopHuntLoop()
-    StopCollectLoop()
     StopStealLoop()
     StopAntiAfk()
     StopTravel()
     ctx.States.enabled    = false
-    ctx.States.autoFarm   = false
-    ctx.States.autoHunt   = false
-    ctx.States.autoCollect = false
     ctx.States.autoSteal  = false
     ctx.States.smoothTravel = false
     ctx.States.antiAFK = false
@@ -1232,15 +963,11 @@ ctx.EnableAntiAFK       = EnableAntiAFK
 ctx.WaitForTrustBuild   = WaitForTrustBuild
 ctx.CheckTrustStatus    = CheckTrustStatus
 
-ctx.CollectEgg          = CollectEgg
-ctx.HuntNPC             = HuntNPC
-ctx.PlaceHeldEgg        = PlaceHeldEgg
 ctx.HatchReadyEggs      = HatchReadyEggs
 ctx.SkipGrowthForAll    = SkipGrowthForAll
 ctx.UpgradeBase         = UpgradeBase
 
 ctx.GetAreaEggs         = getAllAreaEggs
-ctx.GetOtherPlayerPets  = findOtherPlayerPets
 ctx.IsInSafeZone        = IsInSafeZone
 ctx.IsInGameplayArea    = IsInGameplayArea
 ctx.SafeCall            = safeCall
