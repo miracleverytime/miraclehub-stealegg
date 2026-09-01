@@ -143,10 +143,10 @@ ctx.registerPage("Auto Farm", function()
     end)
 
     -- Dynamic speed toggle
-    CreateToggle(content, "⚡ Max Account Speed", "stealDynamicSpeed",
-        "Gunakan kecepatan lari alami tertinggi akunmu (tanpa batasan 130 studs/s)", function(state)
+    CreateToggle(content, "⚡ Max Speed (300 studs/s)", "stealDynamicSpeed",
+        "Gunakan kecepatan lari maksimal game (300 studs/s hardcap)", function(state)
             ctx.States.stealDynamicSpeed = state and true or false
-            print("[StealAnEgg] Max Account Speed:", ctx.States.stealDynamicSpeed)
+            print("[StealAnEgg] Max Speed 300 studs/s:", ctx.States.stealDynamicSpeed)
         end
     )
 

@@ -299,10 +299,26 @@ local okSave, Save_m = (function()
     return pcall(function() return require(ReplicatedStorage.Shared.Save) end)
 end)()
 
--- Helper untuk mendapatkan kecepatan alami pemain dari stat game
+-- Helper untuk mendapatkan kecepatan WalkSpeed (Max hard-cap game adalah 300)
 local function getNaturalWalkSpeed()
+    -- Jika toggle dynamic speed aktif, kita langsung berikan batas maksimal game (300 studs/s)
+    if ctx.States.stealDynamicSpeed ~= false then
+        return 300
+    end
+    -- Jika custom slider diatur
+    if ctx.States.stealTweenSpeed then
+        return ctx.States.stealTweenSpeed
+    end
+    -- Fallback ke SpeedPower akun
     if okTreadmillUtil and TreadmillUtil_m and okSave and Save_m then
-        local ok, data = pcall(Save_m.Get)
+        local ok, data = pcall(function()
+            if Save_m.ReadUnguarded then
+                return Save_m.ReadUnguarded()
+            elseif Save_m.GetSaveData then
+                return Save_m.GetSaveData()
+            end
+            return nil
+        end)
         if ok and type(data) == "table" and data.SpeedPower then
             local okWS, ws = pcall(TreadmillUtil_m.SpeedPowerToWalkSpeed, data.SpeedPower)
             if okWS and type(ws) == "number" and ws > 0 then
@@ -317,8 +333,8 @@ end
 local stealActive = false
 local stealThread = nil
 
--- Gerak menuju posisi target menggunakan Humanoid:MoveTo + natural WalkSpeed & anti-stuck assist.
--- Menggunakan kecepatan alami akun pemain (Treadmill SpeedPower) agar gerak bot sama cepatnya dengan manual.
+-- Gerak menuju posisi target menggunakan Humanoid:MoveTo + dynamic velocity propulsion (hingga 300 studs/s).
+-- Memberikan pergerakan mulus & cepat dengan physics resmi tanpa rubberband server.
 -- opts.onStep() dipanggil tiap langkah; kembalikan true untuk membatalkan
 -- (mis. egg jatuh di tengah jalan) — tween berhenti & return false.
 local function stealTweenTo(pos, heightOffset, opts)
@@ -334,26 +350,20 @@ local function stealTweenTo(pos, heightOffset, opts)
         return true
     end
 
-    local naturalWS = getNaturalWalkSpeed()
-    local targetSpeed = naturalWS
+    local targetSpeed = 300
     if ctx.States.stealDynamicSpeed == false and ctx.States.stealTweenSpeed then
-        targetSpeed = math.min(ctx.States.stealTweenSpeed, naturalWS)
-    else
-        -- Dynamic: selalu pakai kecepatan natural tertinggi akun
-        targetSpeed = naturalWS
+        targetSpeed = ctx.States.stealTweenSpeed
     end
-    targetSpeed = math.max(targetSpeed, 16)
+    targetSpeed = math.clamp(targetSpeed, 16, 300)
 
-    -- Set WalkSpeed jika berbeda
+    -- Set WalkSpeed
     if math.abs(hum.WalkSpeed - targetSpeed) > 1 then
-        hum.WalkSpeed = targetSpeed
+        pcall(function() hum.WalkSpeed = targetSpeed end)
     end
 
     local arrived = false
-    local timeout = (dist / targetSpeed) + 10
+    local timeout = (dist / targetSpeed) + 8
     local t0 = os.clock()
-    local lastPos = root.Position
-    local lastProgress = os.clock()
 
     while stealActive and os.clock() - t0 < timeout do
         _, hum, root = getCharacterAndRoot()
@@ -365,30 +375,26 @@ local function stealTweenTo(pos, heightOffset, opts)
             return false
         end
 
-        if (root.Position - target).Magnitude < 6 then
+        local delta = (target - root.Position)
+        local flatDist = Vector3.new(delta.X, 0, delta.Z).Magnitude
+        if flatDist < 6 then
             arrived = true
             break
         end
 
+        local dir = delta.Unit
         hum:MoveTo(target)
 
-        -- Deteksi macet (rintangan): bila posisi tidak bergerak >1.5 dtk,
-        -- berikan dorongan arah target untuk unstick tanpa merusak collision.
-        local movedDist = (root.Position - lastPos).Magnitude
-        if movedDist >= 1 then
-            lastProgress = os.clock()
-        elseif os.clock() - lastProgress > 1.5 then
-            pcall(function()
-                local dir = (target - root.Position)
-                if dir.Magnitude > 0.1 then
-                    dir = dir.Unit
-                    root.AssemblyLinearVelocity = Vector3.new(dir.X * (targetSpeed * 0.4), 8, dir.Z * (targetSpeed * 0.4))
-                end
-            end)
-            lastProgress = os.clock()
-        end
-        lastPos = root.Position
-        task.wait(0.05)
+        -- Dorongan akselerasi AssemblyLinearVelocity agar mencapai kecepatan target (hingga 300 studs/s)
+        pcall(function()
+            root.AssemblyLinearVelocity = Vector3.new(
+                dir.X * targetSpeed,
+                root.AssemblyLinearVelocity.Y,
+                dir.Z * targetSpeed
+            )
+        end)
+
+        task.wait(0.03)
     end
 
     pcall(function()
