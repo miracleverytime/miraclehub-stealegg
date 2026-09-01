@@ -196,10 +196,18 @@ ctx.registerPage("Auto Farm", function()
         print("[StealAnEgg] Steal area filter:", value)
     end)
 
+    -- Dynamic speed toggle
+    CreateToggle(content, "⚡ Max Account Speed", "stealDynamicSpeed",
+        "Gunakan kecepatan lari alami tertinggi akunmu (tanpa batasan 130 studs/s)", function(state)
+            ctx.States.stealDynamicSpeed = state and true or false
+            print("[StealAnEgg] Max Account Speed:", ctx.States.stealDynamicSpeed)
+        end
+    )
+
     -- Tween speed
-    CreateSlider(content, "Tween Speed", 60, 160, "stealTweenSpeed", "studs/s", function(value)
+    CreateSlider(content, "Speed Limit (studs/s)", 50, 300, "stealTweenSpeed", "studs/s", function(value)
         ctx.States.stealTweenSpeed = value
-        print("[StealAnEgg] Steal tween speed:", value)
+        print("[StealAnEgg] Steal speed cap:", value)
     end)
 
     -- Stats
@@ -210,7 +218,7 @@ ctx.registerPage("Auto Farm", function()
         "**MoveTo (physics asli)** - berjalan via jalur Roblox, TIDAK menembus tembok (anti mati mendadak).\n" ..
         "**Alur:** cari egg terdekat -> jalan (MoveTo) -> CarryFieldEgg -> bawa ke **safe zone** (belakang garis pemisah) -> server auto-claim.\n" ..
         "**Anti-drop:** jika egg jatuh kena penjaga saat dibawa, langsung diambil ulang (tanpa ke base dulu).\n" ..
-        "**Area filter kosong** = semua area. Jangan set speed terlalu tinggi (>130) agar server menerima gerakan.",
+        "**Max Account Speed:** Memakai kecepatan lari penuh karaktermu dari treadmill/upgrade tanpa dibatasi.",
         Colors.Info
     )
 

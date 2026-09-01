@@ -416,13 +416,35 @@ local okPlot, PlotState_m = (function()
     return pcall(function() return require(ReplicatedStorage.Client.PlotState) end)
 end)()
 
+local okTreadmillUtil, TreadmillUtil_m = (function()
+    if not ReplicatedStorage then return false, nil end
+    return pcall(function() return require(ReplicatedStorage.Shared.Util.TreadmillUtil) end)
+end)()
+local okSave, Save_m = (function()
+    if not ReplicatedStorage then return false, nil end
+    return pcall(function() return require(ReplicatedStorage.Shared.Save) end)
+end)()
+
+-- Helper untuk mendapatkan kecepatan alami pemain dari stat game
+local function getNaturalWalkSpeed()
+    if okTreadmillUtil and TreadmillUtil_m and okSave and Save_m then
+        local ok, data = pcall(Save_m.Get)
+        if ok and type(data) == "table" and data.SpeedPower then
+            local okWS, ws = pcall(TreadmillUtil_m.SpeedPowerToWalkSpeed, data.SpeedPower)
+            if okWS and type(ws) == "number" and ws > 0 then
+                return ws
+            end
+        end
+    end
+    local _, hum = getCharacterAndRoot()
+    return (hum and hum.WalkSpeed > 0) and hum.WalkSpeed or 16
+end
+
 local stealActive = false
 local stealThread = nil
 
--- Tween menuju posisi.
--- SELALU pakai Humanoid:MoveTo (physics asli Roblox) — TIDAK pernah CFrame lerp.
--- CFrame lerp bisa menembus tembok/lantai dan membunuh karakter (bug "mati
--- mendadak saat tween jauh"). MoveTo berhenti di rintangan & mengikuti jalur.
+-- Gerak menuju posisi target menggunakan Humanoid:MoveTo + natural WalkSpeed & anti-stuck assist.
+-- Menggunakan kecepatan alami akun pemain (Treadmill SpeedPower) agar gerak bot sama cepatnya dengan manual.
 -- opts.onStep() dipanggil tiap langkah; kembalikan true untuk membatalkan
 -- (mis. egg jatuh di tengah jalan) — tween berhenti & return false.
 local function stealTweenTo(pos, heightOffset, opts)
@@ -438,12 +460,23 @@ local function stealTweenTo(pos, heightOffset, opts)
         return true
     end
 
-    local speed = math.clamp(ctx.States.stealTweenSpeed or 120, 30, 130)
-    local oldWS = hum.WalkSpeed
-    hum.WalkSpeed = speed
+    local naturalWS = getNaturalWalkSpeed()
+    local targetSpeed = naturalWS
+    if ctx.States.stealDynamicSpeed == false and ctx.States.stealTweenSpeed then
+        targetSpeed = math.min(ctx.States.stealTweenSpeed, naturalWS)
+    else
+        -- Dynamic: selalu pakai kecepatan natural tertinggi akun
+        targetSpeed = naturalWS
+    end
+    targetSpeed = math.max(targetSpeed, 16)
+
+    -- Set WalkSpeed jika berbeda
+    if math.abs(hum.WalkSpeed - targetSpeed) > 1 then
+        hum.WalkSpeed = targetSpeed
+    end
 
     local arrived = false
-    local timeout = (dist / speed) + 10
+    local timeout = (dist / targetSpeed) + 10
     local t0 = os.clock()
     local lastPos = root.Position
     local lastProgress = os.clock()
@@ -455,7 +488,6 @@ local function stealTweenTo(pos, heightOffset, opts)
         -- pembatalan (drop detection) — berhenti segera & hentikan gerak
         if opts.onStep and opts.onStep() then
             pcall(function() hum:MoveTo(root.Position) end)
-            hum.WalkSpeed = oldWS
             return false
         end
 
@@ -466,24 +498,25 @@ local function stealTweenTo(pos, heightOffset, opts)
 
         hum:MoveTo(target)
 
-        -- Deteksi macet (rintangan): bila posisi tidak bergerak >3 dtk,
-        -- dorong halus ke samping menuju target, bukan lompat vertikal
-        -- (loncatan AssemblyLinearVelocity tinggi bisa mendorong ke geometri).
-        if (root.Position - lastPos).Magnitude >= 1 then
+        -- Deteksi macet (rintangan): bila posisi tidak bergerak >1.5 dtk,
+        -- berikan dorongan arah target untuk unstick tanpa merusak collision.
+        local movedDist = (root.Position - lastPos).Magnitude
+        if movedDist >= 1 then
             lastProgress = os.clock()
-        elseif os.clock() - lastProgress > 3 then
+        elseif os.clock() - lastProgress > 1.5 then
             pcall(function()
                 local dir = (target - root.Position)
-                if dir.Magnitude > 0.1 then dir = dir.Unit end
-                root.AssemblyLinearVelocity = Vector3.new(dir.X * 8, 6, dir.Z * 8)
+                if dir.Magnitude > 0.1 then
+                    dir = dir.Unit
+                    root.AssemblyLinearVelocity = Vector3.new(dir.X * (targetSpeed * 0.4), 8, dir.Z * (targetSpeed * 0.4))
+                end
             end)
             lastProgress = os.clock()
         end
         lastPos = root.Position
-        task.wait(0.1)
+        task.wait(0.05)
     end
 
-    hum.WalkSpeed = oldWS
     pcall(function()
         if hum and hum.Parent then hum:MoveTo(root.Position) end
     end)
@@ -672,7 +705,8 @@ local function stealEnterGameplayArea()
     if not sep or not sep:IsA("BasePart") then return false end
     local gate = sep.Position + Vector3.new(0, 2, 0) + sep.CFrame.LookVector * 2
     local gateBack = sep.Position + Vector3.new(0, 2, 0) - sep.CFrame.LookVector * 6
-    hum.WalkSpeed = 45
+    local naturalWS = getNaturalWalkSpeed()
+    hum.WalkSpeed = math.max(naturalWS, 45)
     -- 1) berdiri di sisi base dulu (dekat gate, sebelum garis)
     local _, _, r2 = getCharacterAndRoot()
     if r2 and (r2.Position - gateBack).Magnitude > 3 then
