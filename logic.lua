@@ -211,10 +211,19 @@ end
 -- RequestCarryAreaEgg(Uid).
 
 local function getAllAreaEggs()
-    if not okEgg or not EggCmds_m or not EggCmds_m.GetAreaEggSnapshot then return {} end
-    local ok, snap = pcall(EggCmds_m.GetAreaEggSnapshot)
-    if not ok or type(snap) ~= "table" then return {} end
-    return snap.Records or {}
+    if okEggState and EggState_m and EggState_m.ReadFieldEggs then
+        local ok, snap = pcall(EggState_m.ReadFieldEggs)
+        if ok and type(snap) == "table" and snap.Records then
+            return snap.Records
+        end
+    end
+    if okEgg and EggCmds_m and EggCmds_m.GetAreaEggSnapshot then
+        local ok, snap = pcall(EggCmds_m.GetAreaEggSnapshot)
+        if ok and type(snap) == "table" and snap.Records then
+            return snap.Records
+        end
+    end
+    return {}
 end
 
 -- True if this is one of the local player's own "FirstAreaEgg_<uid>_..." starter eggs
@@ -769,7 +778,7 @@ local function StartStealLoop()
                         local t0 = os.clock()
                         while stealActive and os.clock() - t0 < 25 do
                             if not stealIsCarrying() then break end
-                            task.wait()
+                            task.wait(0.1)
                         end
                         if not stealIsCarrying() then
                             -- Cek apakah egg TADI di-drop (kena penjaga) bukan di-claim.
