@@ -257,12 +257,6 @@ ctx.registerPage("Auto Farm", function()
         if ctx.EnableAntiAFK then ctx.EnableAntiAFK(false) end
         print("[StealAnEgg] State reset")
     end, Colors.Danger)
-        if ctx.SetAutoCollect then ctx.SetAutoCollect(false) end
-        if ctx.SetAutoSteal then ctx.SetAutoSteal(false) end
-        if ctx.EnableSmoothTravel then ctx.EnableSmoothTravel(false) end
-        if ctx.EnableAntiAFK then ctx.EnableAntiAFK(false) end
-        print("[StealAnEgg] ✓ Trust reset - all loops stopped")
-    end, Colors.Warning)
 
     CreateInfoText(content, "ℹ Safety Tip",
         "**Stay out of the safe zone** or ToolGameplayGuard will block your requests.\n" ..
